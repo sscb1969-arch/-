@@ -1,18 +1,29 @@
-// ★ Render対応：HTTPサーバーとWebSocketを統合する
+// ===============================
+// Darkflame TCG Server (Render対応版)
+// ===============================
+
+const express = require("express");
 const http = require("http");
 const WebSocket = require("ws");
+const path = require("path");
 
-// ★ Renderは process.env.PORT を必ず使う
 const PORT = process.env.PORT || 8080;
 
+// ★ Express アプリ作成
+const app = express();
+
+// ★ public フォルダを静的配信（index.html / client.js を置く）
+app.use(express.static(path.join(__dirname, "public")));
+
 // ★ HTTPサーバー作成（WebSocketはこの上で動かす）
-const server = http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end("Darkflame TCG Server Running");
-});
+const server = http.createServer(app);
 
 // ★ WebSocketサーバーをHTTPサーバーに紐付ける
 const wss = new WebSocket.Server({ server });
+
+// ===============================
+// ゲームロジック
+// ===============================
 
 const rooms = {};
 
@@ -20,7 +31,9 @@ wss.on("connection", ws => {
   ws.on("message", msg => {
     const data = JSON.parse(msg);
 
-    // 参加処理
+    // -------------------------------
+    // ルーム参加
+    // -------------------------------
     if (data.type === "join") {
       const room = rooms[data.room] ||= {
         players: [],
@@ -44,13 +57,17 @@ wss.on("connection", ws => {
       broadcast(room, { type: "turnStart", player: room.state.turnPlayer, draw: 1 });
     }
 
+    // -------------------------------
     // チャット
+    // -------------------------------
     if (data.type === "chat") {
       const room = rooms[data.room];
       broadcast(room, { type: "chat", user: data.user, text: data.text });
     }
 
+    // -------------------------------
     // カード使用
+    // -------------------------------
     if (data.type === "playCard") {
       const room = rooms[data.room];
       let card = data.card;
@@ -141,7 +158,9 @@ wss.on("connection", ws => {
       }
     }
 
+    // -------------------------------
     // カード受け渡し
+    // -------------------------------
     if (data.type === "giveCard") {
       const room = rooms[data.room];
       broadcast(room, { type: "giveCard", card: data.card, to: data.to });
@@ -149,11 +168,16 @@ wss.on("connection", ws => {
   });
 });
 
-// ★ Renderで必須：HTTPサーバーを起動
+// -------------------------------
+// HTTPサーバー起動（Render必須）
+// -------------------------------
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Darkflame TCG Server Running on port ${PORT}`);
 });
 
+// -------------------------------
+// 共通関数
+// -------------------------------
 function broadcast(room, payload) {
   room.players.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) {
