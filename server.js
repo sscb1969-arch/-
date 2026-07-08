@@ -4,7 +4,13 @@ const server = require("http").createServer(app);
 const WebSocket = require("ws");
 const wss = new WebSocket.Server({ server });
 
-app.use(express.static("public")); // ← これで index.html を公開
+// ★ public フォルダを公開
+app.use(express.static("public"));
+
+// ★ "/" にアクセスされたら index.html を返す
+app.get("/", (req, res) => {
+  res.sendFile(__dirname + "/public/index.html");
+});
 
 let rooms = {};
 
@@ -36,3 +42,4 @@ function broadcast(room, obj) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log("Server running on " + PORT));
+
