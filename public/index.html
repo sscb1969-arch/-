@@ -9,15 +9,17 @@
 
 <!-- ★ 開始画面 -->
 <div id="startScreen">
-  <h1>Darkflame Online TCG</h1>
+  <h1 class="title">Darkflame Online TCG</h1>
 
-  <h2>ルール説明</h2>
-  <p>
-    ・ターン制のオンラインカードバトル<br>
-    ・攻撃・防御・妨害カードを使って相手のHPを0にすると勝利<br>
-    ・環境カードでターン効果が変化<br>
-    ・最初の手札は3枚
-  </p>
+  <div class="ruleBox">
+    <h2>ルール説明</h2>
+    <p>
+      ・ターン制オンラインカードバトル<br>
+      ・攻撃・防御・妨害カードを使って相手のHPを0にすると勝利<br>
+      ・環境カードでターン効果が変化<br>
+      ・最初の手札は3枚
+    </p>
+  </div>
 
   <label>名前：</label>
   <input id="user" type="text"><br><br>
@@ -25,40 +27,51 @@
   <label>ルーム名：</label>
   <input id="room" type="text"><br><br>
 
-  <button onclick="startGame()">ゲーム開始</button>
+  <button class="startBtn" onclick="startGame()">ゲーム開始</button>
 </div>
 
-<!-- ★ ゲーム画面（開始後に表示） -->
+<!-- ★ ゲーム画面 -->
 <div id="gameScreen" style="display:none;">
-  <h2>Darkflame Online TCG</h2>
 
-  <div>
-    <h3>プレイヤー一覧</h3>
-    <div id="playerList"></div>
+  <div id="topBar">
+    <h1>Darkflame Online TCG</h1>
+    <div id="roomInfo">Room: <span id="roomName"></span></div>
   </div>
 
-  <div>
-    <h3>現在のターン：<span id="turnPlayer"></span></h3>
-    <h3>環境効果：<span id="fieldEffect">なし</span></h3>
-  </div>
+  <div id="mainArea">
 
-  <div>
-    <h3>攻撃対象</h3>
-    <input id="target" type="text">
-    <button onclick="playSelectedCard()">カードを出す</button>
-    <button onclick="redraw()">引き直し（最大2枚）</button>
-  </div>
+    <!-- 左パネル：プレイヤー一覧 -->
+    <div id="leftPanel">
+      <h3>プレイヤー一覧</h3>
+      <div id="playerList"></div>
+    </div>
 
-  <div>
-    <h3>手札</h3>
-    <div id="hand"></div>
-  </div>
+    <!-- 中央パネル：ターン・環境・手札 -->
+    <div id="centerPanel">
+      <h3>現在のターン：<span id="turnPlayer"></span></h3>
+      <h3>環境効果：<span id="fieldEffect">なし</span></h3>
 
-  <div>
-    <h3>チャット</h3>
-    <div id="chat" class="chatBox"></div>
-    <input id="msg" type="text">
-    <button onclick="sendChat()">送信</button>
+      <div id="actionArea">
+        <label>攻撃対象：</label>
+        <select id="targetSelect"></select>
+        <button onclick="playSelectedCard()">カードを出す</button>
+        <button onclick="redraw()">引き直し（最大2枚）</button>
+      </div>
+
+      <div id="handArea">
+        <h3>手札</h3>
+        <div id="hand"></div>
+      </div>
+    </div>
+
+    <!-- 右パネル：チャット -->
+    <div id="rightPanel">
+      <h3>チャット</h3>
+      <div id="chat" class="chatBox"></div>
+      <input id="msg" type="text">
+      <button onclick="sendChat()">送信</button>
+    </div>
+
   </div>
 </div>
 
