@@ -3,11 +3,9 @@ let user = "";
 let room = "";
 let hand = [];
 let currentTurnPlayer = "";
-let blockNextDraw = false;
 let selectedCardIndex = null;
-let playedThisTurn = false; // ★攻撃・妨害カードは1ターン1枚まで
+let playedThisTurn = false; // 攻撃・妨害は1ターン1枚まで
 
-// ★ ゲーム開始
 function startGame() {
   document.getElementById("startScreen").style.display = "none";
   document.getElementById("gameScreen").style.display = "block";
@@ -15,7 +13,7 @@ function startGame() {
   connect();
 }
 
-// ★ カード一覧
+// カード一覧（表示用）
 const allCards = [
   { id: 1, name: "攻撃 +3", attack: 3, rarity: "N" },
   { id: 2, name: "強攻撃 +6", attack: 6, extraAction: -1, rarity: "R" },
@@ -67,9 +65,13 @@ function connect() {
       updateGameState(data.state);
     }
 
+    // ★ターン開始：draw フィールドをちゃんと使う
     if (data.type === "turnStart") {
-      playedThisTurn = false; // ★ターン開始でリセット
-      const newCards = drawCards(1); // ★ターン開始時に1枚ドロー
+      playedThisTurn = false;
+      currentTurnPlayer = data.player;
+
+      const drawCount = data.draw || 0;
+      const newCards = drawCards(drawCount);
       newCards.forEach(c => animateCardAdd(c));
       hand.push(...newCards);
     }
@@ -84,15 +86,6 @@ function connect() {
       });
     }
 
-    if (data.type === "fieldEffect") {
-      document.getElementById("fieldEffect").innerText =
-        `${data.effect.name}（残り${data.effect.duration}ターン）`;
-    }
-
-    if (data.type === "fieldEnd") {
-      document.getElementById("fieldEffect").innerText = "なし";
-    }
-
     if (data.type === "chat") {
       const chat = document.getElementById("chat");
       chat.innerHTML += `<div class="chatMsg"><b>${data.user}:</b> ${data.text}</div>`;
@@ -102,10 +95,35 @@ function connect() {
     if (data.type === "gameOver") {
       showVictory(data.winner, data.rankings);
     }
+
+    if (data.type === "redrawResult") {
+      hand = data.newHand;
+      selectedCardIndex = null;
+      renderHand();
+    }
+
+    if (data.type === "error") {
+      alert(data.message);
+    }
   };
 }
 
-// ★ カード引きアニメ
+// ドロー（クライアント側はランダム生成のみ）
+function drawCards(n) {
+  const result = [];
+  for (let i = 0; i < n; i++) {
+    const r = Math.random();
+    let pool;
+    if (r < 0.60) pool = allCards.filter(c => c.rarity === "N");
+    else if (r < 0.85) pool = allCards.filter(c => c.rarity === "R");
+    else if (r < 0.95) pool = allCards.filter(c => c.rarity === "SR");
+    else pool = allCards.filter(c => c.rarity === "UR");
+    result.push(pool[Math.floor(Math.random() * pool.length)]);
+  }
+  return result;
+}
+
+// カード引きアニメ
 function animateCardAdd(card) {
   const handDiv = document.getElementById("hand");
   const div = document.createElement("div");
@@ -118,7 +136,7 @@ function animateCardAdd(card) {
   }, 300);
 }
 
-// ★ ダメージ演出
+// ダメージ演出
 function showDamage(targetName, amount) {
   const targetBox = document.getElementById("player_" + targetName);
   if (!targetBox) return;
@@ -137,7 +155,7 @@ function showDamage(targetName, amount) {
   }, 800);
 }
 
-// ★ 勝利演出
+// 勝利演出
 function showVictory(winner, rankings) {
   const overlay = document.createElement("div");
   overlay.id = "victoryOverlay";
@@ -153,25 +171,16 @@ function showVictory(winner, rankings) {
   document.body.appendChild(overlay);
 }
 
-function drawCards(n) {
-  const result = [];
-  for (let i = 0; i < n; i++) {
-    const r = Math.random();
-    let pool;
-    if (r < 0.60) pool = allCards.filter(c => c.rarity === "N");
-    else if (r < 0.85) pool = allCards.filter(c => c.rarity === "R");
-    else if (r < 0.95) pool = allCards.filter(c => c.rarity === "SR");
-    else pool = allCards.filter(c => c.rarity === "UR");
-    result.push(pool[Math.floor(Math.random() * pool.length)]);
-  }
-  return result;
-}
-
 function updateGameState(state) {
   currentTurnPlayer = state.turnPlayer;
   document.getElementById("turnPlayer").innerText = state.turnPlayer;
 
   renderPlayerList(state.players, state.turnOrder);
+
+  // 引き直しクールダウン表示
+  if (state.players[user]) {
+    updateRedrawCooldown(state.players[user].redrawCooldown || 0);
+  }
 
   const targetSelect = document.getElementById("targetSelect");
   targetSelect.innerHTML = "";
@@ -224,6 +233,20 @@ function renderHand() {
   });
 }
 
+// 引き直しクールダウン表示
+function updateRedrawCooldown(cd) {
+  const text = document.getElementById("redrawCooldownText");
+  const btn = document.getElementById("redrawBtn");
+
+  if (cd > 0) {
+    text.innerText = `（あと ${cd} ターン）`;
+    btn.classList.add("disabled");
+  } else {
+    text.innerText = "";
+    btn.classList.remove("disabled");
+  }
+}
+
 function playSelectedCard() {
   if (user !== currentTurnPlayer) {
     alert("まだあなたのターンではありません");
@@ -236,7 +259,7 @@ function playSelectedCard() {
 
   const card = hand[selectedCardIndex];
 
-  // ★防御カード判定
+  // 防御カード判定
   const isDefense =
     card.defense ||
     card.healSelf ||
@@ -245,7 +268,7 @@ function playSelectedCard() {
     card.reduceIncoming ||
     card.reflect;
 
-  // ★攻撃・妨害カードは1ターン1枚まで
+  // 攻撃・妨害カードは1ターン1枚まで
   if (!isDefense && playedThisTurn) {
     alert("攻撃・妨害カードは1ターンに1枚までです");
     return;
@@ -268,21 +291,19 @@ function playSelectedCard() {
   renderHand();
 }
 
-// ★ 引き直し＝手札全交換
+// 引き直し（2ターンに1回）
 function redraw() {
   if (user !== currentTurnPlayer) {
     alert("あなたのターンではありません");
     return;
   }
 
-  const newHand = [];
-  for (let i = 0; i < hand.length; i++) {
-    newHand.push(drawCards(1)[0]);
-  }
-
-  hand = newHand;
-  selectedCardIndex = null;
-  renderHand();
+  ws.send(JSON.stringify({
+    type: "redraw",
+    room,
+    user,
+    handSize: hand.length
+  }));
 }
 
 function sendChat() {
