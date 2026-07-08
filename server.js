@@ -47,7 +47,7 @@ const allCards = [
 ];
 
 // ---------------------------
-// カードを引く
+// カードを引く（サーバー側）
 // ---------------------------
 function drawCard() {
   const r = Math.random();
@@ -97,11 +97,14 @@ wss.on("connection", ws => {
       if (!state.turnPlayer) {
         state.turnPlayer = user;
 
-        broadcast(room, {
-          type: "turnStart",
-          player: user,
-          draw: 3
-        });
+        // 接続直後に送ると取りこぼすことがあるので少し遅延
+        setTimeout(() => {
+          broadcast(room, {
+            type: "turnStart",
+            player: user,
+            draw: 3
+          });
+        }, 200);
       }
 
       broadcast(room, {
@@ -158,6 +161,23 @@ wss.on("connection", ws => {
       const card = msg.card;
       const target = msg.target;
 
+      // 攻撃・妨害系は target 必須
+      const needsTarget =
+        card.attack ||
+        card.attackAll ||
+        card.disruptHand ||
+        card.stealCard ||
+        card.skipTurn ||
+        card.stealTurn;
+
+      if (needsTarget && !target && !card.attackAll) {
+        ws.send(JSON.stringify({
+          type: "error",
+          message: "攻撃・妨害カードは攻撃対象を選んでください"
+        }));
+        return;
+      }
+
       // 防御カードセット
       if (card.blockOnce) state.players[user].blockOnce = true;
       if (card.reflect) state.players[user].reflect = true;
@@ -169,6 +189,13 @@ wss.on("connection", ws => {
       // ---------------------------
       if (card.attack) {
         const p = state.players[target];
+        if (!p) {
+          ws.send(JSON.stringify({
+            type: "error",
+            message: "対象プレイヤーが存在しません"
+          }));
+          return;
+        }
 
         if (p.blockOnce) {
           p.blockOnce = false;
@@ -251,6 +278,7 @@ wss.on("connection", ws => {
         return;
       }
 
+      // ★ここまで来たら必ずターン終了
       nextTurn(room);
     }
   });
@@ -262,7 +290,7 @@ wss.on("connection", ws => {
 function nextTurn(room) {
   const state = rooms[room];
 
-  // クールダウン減少
+  // 引き直しクールダウン減少
   state.turnOrder.forEach(name => {
     const p = state.players[name];
     if (p.redrawCooldown > 0) p.redrawCooldown--;
@@ -274,6 +302,7 @@ function nextTurn(room) {
 
   state.turnPlayer = state.turnOrder[next];
 
+  // 次のプレイヤーに必ず1枚配る
   broadcast(room, {
     type: "turnStart",
     player: state.turnPlayer,
