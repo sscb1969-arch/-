@@ -40,10 +40,10 @@ const allCards = [
   { id: 27, name: "妨害：ドロー封印", blockDraw: true, rarity: "R" },
   { id: 28, name: "妨害：ドロー逆転", stealDraw: true, rarity: "SR" },
 
-  { id: 100, name: "環境：効果ランダム化（1T）", field: { type: "randomEffect", duration: 1 }, rarity: "SR" },
-  { id: 101, name: "環境：攻撃半減（2T）", field: { type: "halfAttack", duration: 2 }, rarity: "R" },
-  { id: 103, name: "環境：ドロー2枚（1T）", field: { type: "doubleDraw", duration: 1 }, rarity: "SR" },
-  { id: 104, name: "環境：行動固定（1T）", field: { type: "lockAction", duration: 1 }, rarity: "R" }
+  { id: 100, name: "環境：効果ランダム化（1R）", field: { type: "randomEffect", duration: 1 }, rarity: "SR" },
+  { id: 101, name: "環境：攻撃半減（2R）", field: { type: "halfAttack", duration: 2 }, rarity: "R" },
+  { id: 103, name: "環境：ドロー2枚（1R）", field: { type: "doubleDraw", duration: 1 }, rarity: "SR" },
+  { id: 104, name: "環境：行動固定（1R）", field: { type: "lockAction", duration: 1 }, rarity: "R" }
 ];
 
 // ---------------------------
@@ -60,26 +60,49 @@ function drawCard() {
 }
 
 // ---------------------------
+// カード使用ログ（チャット送信）
+// ---------------------------
+function sendCardLog(room, user, card, target) {
+  let text = "";
+
+  if (card.field) {
+    text = `${user} が「${card.name}」を発動`;
+  } else if (card.attackAll) {
+    text = `${user} が「${card.name}」を使用（全体攻撃）`;
+  } else if (card.attack) {
+    text = `${user} が「${card.name}」を ${target} に使用`;
+  } else if (card.disruptHand || card.stealCard || card.skipTurn || card.stealTurn) {
+    text = `${user} が「${card.name}」を ${target} に使用`;
+  } else {
+    text = `${user} が「${card.name}」を使用`;
+  }
+
+  broadcast(room, {
+    type: "chat",
+    user: "SYSTEM",
+    text
+  });
+}
+
+// ---------------------------
 // WebSocket 接続
 // ---------------------------
 wss.on("connection", ws => {
-  // この接続が属する room を覚えておく
   ws.currentRoom = null;
 
   ws.on("message", raw => {
     const msg = JSON.parse(raw);
     const { type, room, user } = msg;
 
-    // 接続に room を紐付け
-    if (room) {
-      ws.currentRoom = room;
-    }
+    if (room) ws.currentRoom = room;
 
     if (!rooms[room]) {
       rooms[room] = {
         players: {},
         turnOrder: [],
-        turnPlayer: null
+        turnPlayer: null,
+        round: 1,
+        fieldEffect: null
       };
     }
 
@@ -96,14 +119,16 @@ wss.on("connection", ws => {
           reflect: false,
           reduceIncoming: false,
           blockDisrupt: false,
-          redrawCooldown: 0
+          redrawCooldown: 0,
+          started: false
         };
         state.turnOrder.push(user);
       }
 
-      // 最初のプレイヤーだけ初期手札3枚
+      // 最初のプレイヤーだけ即座に初期手札3枚
       if (!state.turnPlayer) {
         state.turnPlayer = user;
+        state.players[user].started = true;
 
         setTimeout(() => {
           broadcast(room, {
@@ -119,7 +144,9 @@ wss.on("connection", ws => {
         state: {
           players: state.players,
           turnOrder: state.turnOrder,
-          turnPlayer: state.turnPlayer
+          turnPlayer: state.turnPlayer,
+          round: state.round,
+          fieldEffect: state.fieldEffect
         }
       });
       return;
@@ -139,7 +166,7 @@ wss.on("connection", ws => {
 
     // ---------------------------
     // 引き直し（2ターンに1回）
-    // ---------------------------
+// ---------------------------
     if (type === "redraw") {
       const p = state.players[user];
 
@@ -172,6 +199,21 @@ wss.on("connection", ws => {
       const card = msg.card;
       const target = msg.target;
 
+      // カード使用ログ
+      sendCardLog(room, user, card, target);
+
+      // 環境カード
+      if (card.field) {
+        state.fieldEffect = {
+          name: card.name,
+          type: card.field.type,
+          duration: card.field.duration
+        };
+
+        nextTurn(room);
+        return;
+      }
+
       // 攻撃・妨害系は target 必須（全体攻撃除く）
       const needsTarget =
         card.attack ||
@@ -183,7 +225,7 @@ wss.on("connection", ws => {
       if (needsTarget && !target) {
         ws.send(JSON.stringify({
           type: "error",
-          message: "攻撃・妨害カードは攻撃対象を選んでください"
+          message: "攻撃対象を選んでください"
         }));
         return;
       }
@@ -194,9 +236,7 @@ wss.on("connection", ws => {
       if (card.reduceIncoming) state.players[user].reduceIncoming = true;
       if (card.blockDisrupt) state.players[user].blockDisrupt = true;
 
-      // ---------------------------
-      // 攻撃処理（防御は1回で消える）
-      // ---------------------------
+      // 攻撃処理
       if (card.attack) {
         const p = state.players[target];
         if (!p) {
@@ -207,24 +247,30 @@ wss.on("connection", ws => {
           return;
         }
 
+        let atk = card.attack;
+
+        // 環境：攻撃半減
+        if (state.fieldEffect && state.fieldEffect.type === "halfAttack") {
+          atk = Math.floor(atk * 0.5);
+        }
+
         if (p.blockOnce) {
           p.blockOnce = false;
           broadcast(room, { type: "effect", target, text: "完全防御", color: "blue" });
         } else if (p.reflect) {
           p.reflect = false;
-          state.players[user].hp -= card.attack;
+          state.players[user].hp -= atk;
           broadcast(room, { type: "effect", target, text: "反射", color: "blue" });
         } else if (p.reduceIncoming) {
           p.reduceIncoming = false;
-          const dmg = Math.floor(card.attack * 0.5);
+          const dmg = Math.floor(atk * 0.5);
           p.hp -= dmg;
           broadcast(room, { type: "attackEffect", target, amount: dmg });
         } else {
-          p.hp -= card.attack;
-          broadcast(room, { type: "attackEffect", target, amount: card.attack });
+          p.hp -= atk;
+          broadcast(room, { type: "attackEffect", target, amount: atk });
         }
 
-        // 死亡判定
         if (p.hp <= 0) {
           const rankings = Object.keys(state.players)
             .map(name => ({ name, hp: state.players[name].hp }))
@@ -241,7 +287,12 @@ wss.on("connection", ws => {
 
       // 全体攻撃
       if (card.attackAll) {
-        const amount = card.attackAll;
+        let amount = card.attackAll;
+
+        if (state.fieldEffect && state.fieldEffect.type === "halfAttack") {
+          amount = Math.floor(amount * 0.5);
+        }
+
         const targets = [];
 
         state.turnOrder.forEach(name => {
@@ -281,10 +332,17 @@ wss.on("connection", ws => {
       if (card.stealTurn) {
         state.turnPlayer = user;
 
+        const pNext = state.players[user];
+        let draw = 1;
+        if (!pNext.started) {
+          draw = 3;
+          pNext.started = true;
+        }
+
         broadcast(room, {
           type: "turnStart",
           player: user,
-          draw: 1
+          draw
         });
 
         broadcast(room, {
@@ -292,20 +350,22 @@ wss.on("connection", ws => {
           state: {
             players: state.players,
             turnOrder: state.turnOrder,
-            turnPlayer: state.turnPlayer
+            turnPlayer: state.turnPlayer,
+            round: state.round,
+            fieldEffect: state.fieldEffect
           }
         });
         return;
       }
 
-      // ここまで来たら必ずターン終了
       nextTurn(room);
     }
   });
 });
 
 // ---------------------------
-// ターン進行
+// ターン進行（1手番＝1ターン）
+// 全員のターンが終わると1ラウンド経過
 // ---------------------------
 function nextTurn(room) {
   const state = rooms[room];
@@ -318,15 +378,41 @@ function nextTurn(room) {
 
   const idx = state.turnOrder.indexOf(state.turnPlayer);
   let next = idx + 1;
-  if (next >= state.turnOrder.length) next = 0;
+
+  // 一周したらラウンド進行
+  if (next >= state.turnOrder.length) {
+    next = 0;
+    state.round++;
+
+    // 環境効果のラウンド減少
+    if (state.fieldEffect) {
+      state.fieldEffect.duration--;
+
+      if (state.fieldEffect.duration <= 0) {
+        state.fieldEffect = null;
+
+        broadcast(room, {
+          type: "chat",
+          user: "SYSTEM",
+          text: "環境効果が終了しました"
+        });
+      }
+    }
+  }
 
   state.turnPlayer = state.turnOrder[next];
 
-  // 次のプレイヤーに必ず1枚配る
+  const pNext = state.players[state.turnPlayer];
+  let draw = 1;
+  if (!pNext.started) {
+    draw = 3;
+    pNext.started = true;
+  }
+
   broadcast(room, {
     type: "turnStart",
     player: state.turnPlayer,
-    draw: 1
+    draw
   });
 
   broadcast(room, {
@@ -334,7 +420,9 @@ function nextTurn(room) {
     state: {
       players: state.players,
       turnOrder: state.turnOrder,
-      turnPlayer: state.turnPlayer
+      turnPlayer: state.turnPlayer,
+      round: state.round,
+      fieldEffect: state.fieldEffect
     }
   });
 }
@@ -345,7 +433,7 @@ function nextTurn(room) {
 function broadcast(room, obj) {
   wss.clients.forEach(client => {
     if (client.readyState !== WebSocket.OPEN) return;
-    if (client.currentRoom !== room) return; // ★ 同じ room だけに送る
+    if (client.currentRoom !== room) return;
     client.send(JSON.stringify(obj));
   });
 }
