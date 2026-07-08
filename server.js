@@ -1,5 +1,5 @@
 // ===============================
-// Darkflame TCG Server (Render対応版)
+// Darkflame TCG Server (Render対応版・手札確実配布版)
 // ===============================
 
 const express = require("express");
@@ -12,18 +12,14 @@ const PORT = process.env.PORT || 8080;
 // ★ Express アプリ作成
 const app = express();
 
-// ★ public フォルダを静的配信（index.html / client.js を置く）
+// ★ public フォルダを静的配信（index.html / client.js）
 app.use(express.static(path.join(__dirname, "public")));
 
-// ★ HTTPサーバー作成（WebSocketはこの上で動かす）
+// ★ HTTPサーバー作成
 const server = http.createServer(app);
 
 // ★ WebSocketサーバーをHTTPサーバーに紐付ける
 const wss = new WebSocket.Server({ server });
-
-// ===============================
-// ゲームロジック
-// ===============================
 
 const rooms = {};
 
@@ -49,12 +45,23 @@ wss.on("connection", ws => {
       room.players.push(ws);
       room.state.players[data.user] = { hp: 20 };
 
+      // 最初のプレイヤーをターンプレイヤーにする
       if (!room.state.turnPlayer) {
         room.state.turnPlayer = data.user;
       }
 
-      broadcast(room, { type: "update", state: room.state });
-      broadcast(room, { type: "turnStart", player: room.state.turnPlayer, draw: 1 });
+      // ★★★ 重要：手札を確実に配るために turnStart を先に送る ★★★
+      broadcast(room, {
+        type: "turnStart",
+        player: room.state.turnPlayer,
+        draw: 1
+      });
+
+      // その後に state を送る（順番が逆だと手札が出ない）
+      broadcast(room, {
+        type: "update",
+        state: room.state
+      });
     }
 
     // -------------------------------
