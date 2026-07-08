@@ -15,9 +15,11 @@
     <h2>ルール説明</h2>
     <p>
       ・ターン制オンラインカードバトル<br>
-      ・攻撃・防御・妨害カードを使って相手のHPを0にすると勝利<br>
-      ・環境カードでターン効果が変化<br>
-      ・最初の手札は3枚
+      ・攻撃・妨害カードは1ターンに1枚まで<br>
+      ・防御カードは何枚でも出せるが、効果は1回で消える<br>
+      ・ターン開始時に1枚ドロー<br>
+      ・引き直しは手札全交換<br>
+      ・HPが0になったら敗北、順位が表示される
     </p>
   </div>
 
@@ -46,7 +48,7 @@
       <div id="playerList"></div>
     </div>
 
-    <!-- 中央パネル：ターン・環境・手札 -->
+    <!-- 中央パネル -->
     <div id="centerPanel">
       <h3>現在のターン：<span id="turnPlayer"></span></h3>
       <h3>環境効果：<span id="fieldEffect">なし</span></h3>
@@ -55,7 +57,7 @@
         <label>攻撃対象：</label>
         <select id="targetSelect"></select>
         <button onclick="playSelectedCard()">カードを出す</button>
-        <button onclick="redraw()">引き直し（最大2枚）</button>
+        <button onclick="redraw()">引き直し（全交換）</button>
       </div>
 
       <div id="handArea">
