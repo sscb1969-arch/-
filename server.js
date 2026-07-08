@@ -109,7 +109,11 @@ wss.on("connection", ws => {
 
       broadcast(room, {
         type: "update",
-        state
+        state: {
+          players: state.players,
+          turnOrder: state.turnOrder,
+          turnPlayer: state.turnPlayer
+        }
       });
       return;
     }
@@ -161,16 +165,15 @@ wss.on("connection", ws => {
       const card = msg.card;
       const target = msg.target;
 
-      // 攻撃・妨害系は target 必須
+      // 攻撃・妨害系は target 必須（全体攻撃除く）
       const needsTarget =
         card.attack ||
-        card.attackAll ||
         card.disruptHand ||
         card.stealCard ||
         card.skipTurn ||
         card.stealTurn;
 
-      if (needsTarget && !target && !card.attackAll) {
+      if (needsTarget && !target) {
         ws.send(JSON.stringify({
           type: "error",
           message: "攻撃・妨害カードは攻撃対象を選んでください"
@@ -275,10 +278,18 @@ wss.on("connection", ws => {
           player: user,
           draw: 1
         });
+        broadcast(room, {
+          type: "update",
+          state: {
+            players: state.players,
+            turnOrder: state.turnOrder,
+            turnPlayer: state.turnPlayer
+          }
+        });
         return;
       }
 
-      // ★ここまで来たら必ずターン終了
+      // ここまで来たら必ずターン終了
       nextTurn(room);
     }
   });
@@ -311,7 +322,11 @@ function nextTurn(room) {
 
   broadcast(room, {
     type: "update",
-    state
+    state: {
+      players: state.players,
+      turnOrder: state.turnOrder,
+      turnPlayer: state.turnPlayer
+    }
   });
 }
 
