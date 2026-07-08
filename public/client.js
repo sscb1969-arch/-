@@ -4,11 +4,17 @@ let room = "";
 let hand = [];
 let redrawSelected = [];
 let currentTurnPlayer = "";
-let blockNextDraw = false;  // ★ これがないとエラーになる
+let blockNextDraw = false;
 
-// ★ カード一覧（前に貼ってくれた allCards をここに置く）
+// ★ ゲーム開始ボタン
+function startGame() {
+  document.getElementById("startScreen").style.display = "none";
+  document.getElementById("gameScreen").style.display = "block";
+  connect();
+}
+
+// ★ カード一覧（前と同じ）
 const allCards = [
-  // 攻撃
   { id: 1, name: "攻撃 +3", attack: 3, rarity: "N" },
   { id: 2, name: "強攻撃 +6", attack: 6, extraAction: -1, rarity: "R" },
   { id: 3, name: "連撃 2回", attackMulti: 2, rarity: "SR" },
@@ -18,7 +24,6 @@ const allCards = [
   { id: 7, name: "全体攻撃 +2", attackAll: 2, rarity: "UR" },
   { id: 8, name: "追行動攻撃 +2", attack: 2, extraAction: 1, rarity: "SR" },
 
-  // 防御
   { id: 11, name: "防御 +3", defense: 3, rarity: "N" },
   { id: 12, name: "強防御 +6", defense: 6, extraAction: -1, rarity: "R" },
   { id: 13, name: "軽減（半減）", reduceIncoming: 0.5, rarity: "R" },
@@ -26,7 +31,6 @@ const allCards = [
   { id: 15, name: "完全防御", blockOnce: true, rarity: "SR" },
   { id: 16, name: "妨害無効", blockDisrupt: true, rarity: "SR" },
 
-  // 妨害
   { id: 20, name: "妨害：手札破壊", disruptHand: 1, rarity: "R" },
   { id: 21, name: "妨害：手札公開", revealHand: true, rarity: "R" },
   { id: 22, name: "妨害：手札交換", stealCard: true, rarity: "SR" },
@@ -36,7 +40,6 @@ const allCards = [
   { id: 27, name: "妨害：ドロー封印", blockDraw: true, rarity: "R" },
   { id: 28, name: "妨害：ドロー逆転", stealDraw: true, rarity: "SR" },
 
-  // フィールド効果
   { id: 100, name: "環境：効果ランダム化（1T）", field: { type: "randomEffect", duration: 1 }, rarity: "SR" },
   { id: 101, name: "環境：攻撃半減（2T）", field: { type: "halfAttack", duration: 2 }, rarity: "R" },
   { id: 103, name: "環境：ドロー2枚（1T）", field: { type: "doubleDraw", duration: 1 }, rarity: "SR" },
@@ -47,46 +50,28 @@ function connect() {
   user = document.getElementById("user").value.trim();
   room = document.getElementById("room").value.trim();
 
-  if (!user) {
-    alert("名前を入力してください");
-    return;
-  }
-  if (!room) {
-    alert("ルーム名を入力してください");
-    return;
-  }
-
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-  const wsUrl = isLocal
-    ? "ws://localhost:8080"
-    : `wss://${location.host}`;
+  const wsUrl = isLocal ? "ws://localhost:8080" : `wss://${location.host}`;
 
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
-    console.log("WS open:", wsUrl, "user:", user, "room:", room);
     ws.send(JSON.stringify({ type: "join", user, room }));
   };
 
   ws.onmessage = e => {
     const data = JSON.parse(e.data);
-    console.log("WS message:", data);
 
     if (data.type === "update") {
       updateGameState(data.state);
     }
 
     if (data.type === "turnStart") {
-      console.log("turnStart受信:", data, "client user:", user);
-      if (!blockNextDraw) {
-        const drawCount = data.draw || 1;
-        const newCards = drawCards(drawCount);
-        console.log("drawCardsで引いた:", newCards);
-        hand.push(...newCards);
-        renderHand();
-      } else {
-        blockNextDraw = false;
-      }
+      // ★ 最初の手札を3枚に変更
+      const drawCount = data.draw || 3;
+      const newCards = drawCards(drawCount);
+      hand.push(...newCards);
+      renderHand();
     }
 
     if (data.type === "fieldEffect") {
