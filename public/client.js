@@ -1,9 +1,16 @@
 function connect() {
-  user = document.getElementById("user").value;
-  room = document.getElementById("room").value;
+  user = document.getElementById("user").value.trim();
+  room = document.getElementById("room").value.trim();
 
-  // ★ ローカル開発なら ws://localhost:8080
-  // ★ Render 本番なら wss:// + location.host
+  if (!user) {
+    alert("名前を入力してください");
+    return;
+  }
+  if (!room) {
+    alert("ルーム名を入力してください");
+    return;
+  }
+
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   const wsUrl = isLocal
     ? "ws://localhost:8080"
@@ -12,28 +19,33 @@ function connect() {
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
+    console.log("WS open:", wsUrl, "user:", user, "room:", room);
     ws.send(JSON.stringify({ type: "join", user, room }));
   };
 
   ws.onmessage = e => {
     const data = JSON.parse(e.data);
+    console.log("WS message:", data);  // ★ ここで全部見る
 
     if (data.type === "update") {
       updateGameState(data.state);
     }
 
     if (data.type === "turnStart") {
-      if (data.player === user) {
-        if (!blockNextDraw) {
-          const newCards = drawCards(data.draw);
-          hand.push(...newCards);
-          renderHand();
-        } else {
-          blockNextDraw = false;
-        }
+      console.log("turnStart受信:", data, "client user:", user);
+      // ★ 一旦プレイヤー一致チェックを緩めて動作確認
+      if (!blockNextDraw) {
+        const drawCount = data.draw || 1;
+        const newCards = drawCards(drawCount);
+        console.log("drawCardsで引いた:", newCards);
+        hand.push(...newCards);
+        renderHand();
+      } else {
+        blockNextDraw = false;
       }
     }
 
+    // 以下はそのまま
     if (data.type === "fieldEffect") {
       document.getElementById("fieldEffect").innerText =
         `${data.effect.name}（残り${data.effect.duration}ターン）`;
@@ -49,7 +61,6 @@ function connect() {
       chat.scrollTop = chat.scrollHeight;
     }
 
-    // 妨害系
     if (data.type === "disruptHand" && data.target === user) {
       for (let i = 0; i < data.amount; i++) {
         if (hand.length > 0) {
@@ -88,7 +99,6 @@ function connect() {
     }
   };
 }
-
 
 function drawCards(n) {
   const result = [];
