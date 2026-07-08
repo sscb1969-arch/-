@@ -1,5 +1,18 @@
+// ★ Render対応：HTTPサーバーとWebSocketを統合する
+const http = require("http");
 const WebSocket = require("ws");
-const wss = new WebSocket.Server({ port: 8080 });
+
+// ★ Renderは process.env.PORT を必ず使う
+const PORT = process.env.PORT || 8080;
+
+// ★ HTTPサーバー作成（WebSocketはこの上で動かす）
+const server = http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end("Darkflame TCG Server Running");
+});
+
+// ★ WebSocketサーバーをHTTPサーバーに紐付ける
+const wss = new WebSocket.Server({ server });
 
 const rooms = {};
 
@@ -7,6 +20,7 @@ wss.on("connection", ws => {
   ws.on("message", msg => {
     const data = JSON.parse(msg);
 
+    // 参加処理
     if (data.type === "join") {
       const room = rooms[data.room] ||= {
         players: [],
@@ -18,6 +32,7 @@ wss.on("connection", ws => {
           fieldEffect: null
         }
       };
+
       room.players.push(ws);
       room.state.players[data.user] = { hp: 20 };
 
@@ -26,15 +41,16 @@ wss.on("connection", ws => {
       }
 
       broadcast(room, { type: "update", state: room.state });
-      // ターン開始ドロー
       broadcast(room, { type: "turnStart", player: room.state.turnPlayer, draw: 1 });
     }
 
+    // チャット
     if (data.type === "chat") {
       const room = rooms[data.room];
       broadcast(room, { type: "chat", user: data.user, text: data.text });
     }
 
+    // カード使用
     if (data.type === "playCard") {
       const room = rooms[data.room];
       let card = data.card;
@@ -57,7 +73,7 @@ wss.on("connection", ws => {
         });
       }
 
-      // 防御・回復（ここでは自分にだけ）
+      // 防御・回復
       if (card.defense) {
         room.state.players[data.user].hp += card.defense;
         if (room.state.players[data.user].hp > 20) room.state.players[data.user].hp = 20;
@@ -95,7 +111,7 @@ wss.on("connection", ws => {
         if (room.state.actionPoints < 0) room.state.actionPoints = 0;
       }
 
-      // フィールド効果カード
+      // フィールド効果
       if (card.field) {
         room.state.fieldEffect = {
           type: card.field.type,
@@ -117,7 +133,7 @@ wss.on("connection", ws => {
         return;
       }
 
-      // 行動ポイントが尽きたら次ターン
+      // ターン終了
       if (room.state.actionPoints <= 0) {
         nextTurn(room);
       } else {
@@ -125,11 +141,17 @@ wss.on("connection", ws => {
       }
     }
 
+    // カード受け渡し
     if (data.type === "giveCard") {
       const room = rooms[data.room];
       broadcast(room, { type: "giveCard", card: data.card, to: data.to });
     }
   });
+});
+
+// ★ Renderで必須：HTTPサーバーを起動
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
 
 function broadcast(room, payload) {
@@ -141,7 +163,6 @@ function broadcast(room, payload) {
 }
 
 function nextTurn(room) {
-  // フィールド効果のターン数減少
   if (room.state.fieldEffect) {
     room.state.fieldEffect.duration--;
     if (room.state.fieldEffect.duration <= 0) {
@@ -165,7 +186,7 @@ function applyFieldEffect(room, card) {
   const effect = room.state.fieldEffect;
   if (!effect) return card;
 
-  const c = JSON.parse(JSON.stringify(card)); // コピー
+  const c = JSON.parse(JSON.stringify(card));
 
   switch (effect.type) {
     case "randomEffect":
@@ -186,7 +207,6 @@ function applyFieldEffect(room, card) {
 }
 
 function allRandomCard() {
-  // 簡易版：攻撃3か防御3のどちらか
   const r = Math.random();
   if (r < 0.5) return { name: "ランダム攻撃 +3", attack: 3 };
   return { name: "ランダム防御 +3", defense: 3 };
