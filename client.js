@@ -1,4 +1,7 @@
-const ws = new WebSocket(location.origin.replace("http", "ws"));
+const ws = new WebSocket(
+  (location.protocol === "https:" ? "wss://" : "ws://") + location.host
+);
+
 const room = "room1";
 const user = "Player" + Math.floor(Math.random()*1000);
 
