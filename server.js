@@ -1,8 +1,47 @@
+const express = require("express");
+const app = express();
+const server = require("http").createServer(app);
 const WebSocket = require("ws");
-const wss = new WebSocket.Server({ port: 8080 });
+
+const wss = new WebSocket.Server({ server });
+
+app.use(express.static("public")); // ← index.html, client.js, style.css を置く場所
 
 const rooms = {};
 
+// ★ カード一覧（client.js と同じものをここに置く）
+const allCards = [
+  { id: 1, name: "攻撃 +3", attack: 3, rarity: "N" },
+  { id: 2, name: "強攻撃 +6", attack: 6, extraAction: -1, rarity: "R" },
+  { id: 3, name: "連撃 2回", attackMulti: 2, rarity: "SR" },
+  { id: 4, name: "貫通攻撃 +4", attack: 4, pierce: true, rarity: "R" },
+  { id: 5, name: "吸収攻撃 +3 回復2", attack: 3, healSelf: 2, rarity: "SR" },
+  { id: 6, name: "妨害攻撃", attack: 2, reduceAction: 1, rarity: "SR" },
+  { id: 7, name: "全体攻撃 +2", attackAll: 2, rarity: "UR" },
+  { id: 8, name: "追行動攻撃 +2", attack: 2, extraAction: 1, rarity: "SR" },
+
+  { id: 11, name: "防御 +3", defense: 3, rarity: "N" },
+  { id: 12, name: "強防御 +6", defense: 6, extraAction: -1, rarity: "R" },
+  { id: 13, name: "軽減（半減）", reduceIncoming: 0.5, rarity: "R" },
+  { id: 14, name: "反射 2", reflect: 2, rarity: "SR" },
+  { id: 15, name: "完全防御", blockOnce: true, rarity: "SR" },
+  { id: 16, name: "妨害無効", blockDisrupt: true, rarity: "SR" },
+
+  { id: 20, name: "妨害：手札破壊", disruptHand: 1, rarity: "R" },
+  { id: 22, name: "妨害：手札交換", stealCard: true, rarity: "SR" },
+  { id: 23, name: "妨害：ターンスキップ", skipTurn: true, rarity: "SR" },
+  { id: 24, name: "妨害：ターン奪取", stealTurn: true, rarity: "SR" },
+  { id: 25, name: "妨害：行動-1", reduceAction: 1, rarity: "SR" },
+  { id: 27, name: "妨害：ドロー封印", blockDraw: true, rarity: "R" },
+  { id: 28, name: "妨害：ドロー逆転", stealDraw: true, rarity: "SR" },
+
+  { id: 100, name: "環境：効果ランダム化（1T）", field: { type: "randomEffect", duration: 1 }, rarity: "SR" },
+  { id: 101, name: "環境：攻撃半減（2T）", field: { type: "halfAttack", duration: 2 }, rarity: "R" },
+  { id: 103, name: "環境：ドロー2枚（1T）", field: { type: "doubleDraw", duration: 1 }, rarity: "SR" },
+  { id: 104, name: "環境：行動固定（1T）", field: { type: "lockAction", duration: 1 }, rarity: "R" }
+];
+
+// ★ カードを引く
 function drawCard() {
   const r = Math.random();
   let pool;
@@ -13,10 +52,10 @@ function drawCard() {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+// ★ WebSocket 接続
 wss.on("connection", ws => {
-  ws.on("message", msg => {
-    msg = JSON.parse(msg);
-
+  ws.on("message", raw => {
+    const msg = JSON.parse(raw);
     const { type, room, user } = msg;
 
     if (!rooms[room]) {
@@ -42,10 +81,10 @@ wss.on("connection", ws => {
         state.turnOrder.push(user);
       }
 
+      // ★最初のプレイヤーに初期手札3枚
       if (!state.turnPlayer) {
         state.turnPlayer = user;
 
-        // ★初期手札3枚
         broadcast(room, {
           type: "turnStart",
           player: user,
@@ -75,39 +114,29 @@ wss.on("connection", ws => {
       const card = msg.card;
       const target = msg.target;
 
-      // 防御カードのセット
+      // 防御カードセット
       if (card.blockOnce) state.players[user].blockOnce = true;
       if (card.reflect) state.players[user].reflect = true;
       if (card.reduceIncoming) state.players[user].reduceIncoming = true;
       if (card.blockDisrupt) state.players[user].blockDisrupt = true;
 
-      // ★攻撃カード
+      // ★攻撃処理
       if (card.attack) {
         const p = state.players[target];
 
-        // 完全防御
         if (p.blockOnce) {
           p.blockOnce = false;
           broadcast(room, { type: "effect", target, text: "完全防御", color: "blue" });
-        }
-
-        // 反射
-        else if (p.reflect) {
+        } else if (p.reflect) {
           p.reflect = false;
           state.players[user].hp -= card.attack;
           broadcast(room, { type: "effect", target, text: "反射", color: "blue" });
-        }
-
-        // 軽減
-        else if (p.reduceIncoming) {
+        } else if (p.reduceIncoming) {
           p.reduceIncoming = false;
           const dmg = Math.floor(card.attack * 0.5);
           p.hp -= dmg;
           broadcast(room, { type: "attackEffect", target, amount: dmg });
-        }
-
-        // 通常攻撃
-        else {
+        } else {
           p.hp -= card.attack;
           broadcast(room, { type: "attackEffect", target, amount: card.attack });
         }
@@ -133,8 +162,7 @@ wss.on("connection", ws => {
         const targets = [];
 
         state.turnOrder.forEach(name => {
-          const p = state.players[name];
-          p.hp -= amount;
+          state.players[name].hp -= amount;
           targets.push(name);
         });
 
@@ -145,7 +173,7 @@ wss.on("connection", ws => {
         });
       }
 
-      // ★妨害カード
+      // ★妨害
       if (card.disruptHand) {
         broadcast(room, {
           type: "disruptHand",
@@ -163,7 +191,7 @@ wss.on("connection", ws => {
       }
 
       if (card.skipTurn) {
-        nextTurn(room, true);
+        nextTurn(room);
         return;
       }
 
@@ -177,14 +205,14 @@ wss.on("connection", ws => {
         return;
       }
 
-      // ★ターン終了 → 次のターンへ
-      nextTurn(room, false);
+      // ★ターン終了
+      nextTurn(room);
     }
   });
 });
 
 // ★ターン進行
-function nextTurn(room, skip) {
+function nextTurn(room) {
   const state = rooms[room];
   const idx = state.turnOrder.indexOf(state.turnPlayer);
 
@@ -213,3 +241,9 @@ function broadcast(room, obj) {
     }
   });
 }
+
+// ★ Render 用ポート設定
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
+});
