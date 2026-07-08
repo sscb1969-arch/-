@@ -1,5 +1,5 @@
 // ===============================
-// Darkflame TCG Server (Render対応版・手札確実配布版)
+// Darkflame TCG Server (完全安定版)
 // ===============================
 
 const express = require("express");
@@ -9,16 +9,10 @@ const path = require("path");
 
 const PORT = process.env.PORT || 8080;
 
-// ★ Express アプリ作成
 const app = express();
-
-// ★ public フォルダを静的配信（index.html / client.js）
 app.use(express.static(path.join(__dirname, "public")));
 
-// ★ HTTPサーバー作成
 const server = http.createServer(app);
-
-// ★ WebSocketサーバーをHTTPサーバーに紐付ける
 const wss = new WebSocket.Server({ server });
 
 const rooms = {};
@@ -45,19 +39,17 @@ wss.on("connection", ws => {
       room.players.push(ws);
       room.state.players[data.user] = { hp: 20 };
 
-      // 最初のプレイヤーをターンプレイヤーにする
       if (!room.state.turnPlayer) {
         room.state.turnPlayer = data.user;
       }
 
-      // ★★★ 重要：手札を確実に配るために turnStart を先に送る ★★★
+      // ★★★ 手札を確実に配るために順番を固定 ★★★
       broadcast(room, {
         type: "turnStart",
         player: room.state.turnPlayer,
         draw: 1
       });
 
-      // その後に state を送る（順番が逆だと手札が出ない）
       broadcast(room, {
         type: "update",
         state: room.state
@@ -80,16 +72,13 @@ wss.on("connection", ws => {
       let card = data.card;
       const target = data.target;
 
-      // フィールド効果適用
       card = applyFieldEffect(room, card);
 
-      // 攻撃
       if (card.attack) {
         room.state.players[target].hp -= card.attack;
         if (room.state.players[target].hp < 0) room.state.players[target].hp = 0;
       }
 
-      // 全体攻撃
       if (card.attackAll) {
         Object.keys(room.state.players).forEach(name => {
           room.state.players[name].hp -= card.attackAll;
@@ -97,17 +86,16 @@ wss.on("connection", ws => {
         });
       }
 
-      // 防御・回復
       if (card.defense) {
         room.state.players[data.user].hp += card.defense;
         if (room.state.players[data.user].hp > 20) room.state.players[data.user].hp = 20;
       }
+
       if (card.healSelf) {
         room.state.players[data.user].hp += card.healSelf;
         if (room.state.players[data.user].hp > 20) room.state.players[data.user].hp = 20;
       }
 
-      // 妨害
       if (card.disruptHand) {
         broadcast(room, { type: "disruptHand", target, amount: card.disruptHand });
       }
@@ -135,7 +123,6 @@ wss.on("connection", ws => {
         if (room.state.actionPoints < 0) room.state.actionPoints = 0;
       }
 
-      // フィールド効果
       if (card.field) {
         room.state.fieldEffect = {
           type: card.field.type,
@@ -145,19 +132,16 @@ wss.on("connection", ws => {
         broadcast(room, { type: "fieldEffect", effect: room.state.fieldEffect });
       }
 
-      // 行動ポイント
       if (card.extraAction) {
         room.state.actionPoints += card.extraAction;
       }
       room.state.actionPoints--;
 
-      // 勝敗判定
       if (room.state.players[target] && room.state.players[target].hp <= 0) {
         broadcast(room, { type: "gameOver", winner: data.user });
         return;
       }
 
-      // ターン終了
       if (room.state.actionPoints <= 0) {
         nextTurn(room);
       } else {
@@ -165,9 +149,6 @@ wss.on("connection", ws => {
       }
     }
 
-    // -------------------------------
-    // カード受け渡し
-    // -------------------------------
     if (data.type === "giveCard") {
       const room = rooms[data.room];
       broadcast(room, { type: "giveCard", card: data.card, to: data.to });
@@ -175,9 +156,6 @@ wss.on("connection", ws => {
   });
 });
 
-// -------------------------------
-// HTTPサーバー起動（Render必須）
-// -------------------------------
 server.listen(PORT, () => {
   console.log(`Darkflame TCG Server Running on port ${PORT}`);
 });
