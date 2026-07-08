@@ -5,7 +5,7 @@ const WebSocket = require("ws");
 
 const wss = new WebSocket.Server({ server });
 
-app.use(express.static("public")); // index.html, client.js, style.css
+app.use(express.static("public")); // public/index.html, client.js, style.css
 
 // ---------------------------
 // ルームデータ
@@ -63,9 +63,17 @@ function drawCard() {
 // WebSocket 接続
 // ---------------------------
 wss.on("connection", ws => {
+  // この接続が属する room を覚えておく
+  ws.currentRoom = null;
+
   ws.on("message", raw => {
     const msg = JSON.parse(raw);
     const { type, room, user } = msg;
+
+    // 接続に room を紐付け
+    if (room) {
+      ws.currentRoom = room;
+    }
 
     if (!rooms[room]) {
       rooms[room] = {
@@ -97,7 +105,6 @@ wss.on("connection", ws => {
       if (!state.turnPlayer) {
         state.turnPlayer = user;
 
-        // 接続直後に送ると取りこぼすことがあるので少し遅延
         setTimeout(() => {
           broadcast(room, {
             type: "turnStart",
@@ -273,11 +280,13 @@ wss.on("connection", ws => {
 
       if (card.stealTurn) {
         state.turnPlayer = user;
+
         broadcast(room, {
           type: "turnStart",
           player: user,
           draw: 1
         });
+
         broadcast(room, {
           type: "update",
           state: {
@@ -331,13 +340,13 @@ function nextTurn(room) {
 }
 
 // ---------------------------
-// 送信
+// 送信（room ごと）
 // ---------------------------
 function broadcast(room, obj) {
   wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(obj));
-    }
+    if (client.readyState !== WebSocket.OPEN) return;
+    if (client.currentRoom !== room) return; // ★ 同じ room だけに送る
+    client.send(JSON.stringify(obj));
   });
 }
 
