@@ -5,12 +5,13 @@ let hand = [];
 let redrawSelected = [];
 let currentTurnPlayer = "";
 let blockNextDraw = false;
-let selectedCardIndex = null; // ★ 選択カード
+let selectedCardIndex = null;
 
-// ★ ゲーム開始ボタン
+// ★ ゲーム開始
 function startGame() {
   document.getElementById("startScreen").style.display = "none";
   document.getElementById("gameScreen").style.display = "block";
+  document.getElementById("roomName").innerText = document.getElementById("room").value;
   connect();
 }
 
@@ -68,10 +69,20 @@ function connect() {
     }
 
     if (data.type === "turnStart") {
-      const drawCount = 3; // ★ 最初の手札3枚
+      const drawCount = 3;
       const newCards = drawCards(drawCount);
-      newCards.forEach(c => animateCardAdd(c)); // ★ アニメーション
+      newCards.forEach(c => animateCardAdd(c));
       hand.push(...newCards);
+    }
+
+    if (data.type === "attackEffect") {
+      showDamage(data.target, data.amount);
+    }
+
+    if (data.type === "attackEffectAll") {
+      Object.keys(data.players).forEach(name => {
+        showDamage(name, data.amount);
+      });
     }
 
     if (data.type === "fieldEffect") {
@@ -88,47 +99,10 @@ function connect() {
       chat.innerHTML += `<div class="chatMsg"><b>${data.user}:</b> ${data.text}</div>`;
       chat.scrollTop = chat.scrollHeight;
     }
-
-    if (data.type === "disruptHand" && data.target === user) {
-      for (let i = 0; i < data.amount; i++) {
-        if (hand.length > 0) {
-          const index = Math.floor(Math.random() * hand.length);
-          hand.splice(index, 1);
-        }
-      }
-      renderHand();
-    }
-
-    if (data.type === "revealHand" && data.target === user) {
-      alert("あなたの手札：" + hand.map(c => c.name).join(", "));
-    }
-
-    if (data.type === "blockDraw" && data.target === user) {
-      blockNextDraw = true;
-    }
-
-    if (data.type === "stealDraw" && data.target === user) {
-      const stolen = drawCards(1)[0];
-      ws.send(JSON.stringify({
-        type: "giveCard",
-        card: stolen,
-        to: data.thief,
-        room
-      }));
-    }
-
-    if (data.type === "giveCard" && data.to === user) {
-      hand.push(data.card);
-      renderHand();
-    }
-
-    if (data.type === "gameOver") {
-      alert(`勝者: ${data.winner}`);
-    }
   };
 }
 
-// ★ カードを引くアニメーション
+// ★ カード引きアニメ
 function animateCardAdd(card) {
   const handDiv = document.getElementById("hand");
   const div = document.createElement("div");
@@ -141,20 +115,24 @@ function animateCardAdd(card) {
   }, 300);
 }
 
-// ★ CSS アニメーション（style.css に追加）
-/*
-.drawAnim {
-  transform: scale(0.1);
-  opacity: 0;
-  animation: drawCard 0.3s forwards;
+// ★ ダメージ演出
+function showDamage(targetName, amount) {
+  const targetBox = document.getElementById("player_" + targetName);
+  if (!targetBox) return;
+
+  targetBox.classList.add("playerHit");
+
+  const dmg = document.createElement("div");
+  dmg.className = "damageEffect";
+  dmg.innerText = "-" + amount;
+
+  targetBox.appendChild(dmg);
+
+  setTimeout(() => {
+    dmg.remove();
+    targetBox.classList.remove("playerHit");
+  }, 800);
 }
-@keyframes drawCard {
-  to {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-*/
 
 function drawCards(n) {
   const result = [];
@@ -175,7 +153,6 @@ function updateGameState(state) {
   document.getElementById("turnPlayer").innerText = state.turnPlayer;
   renderPlayerList(state.players);
 
-  // ★ 攻撃対象プルダウン
   const targetSelect = document.getElementById("targetSelect");
   targetSelect.innerHTML = "";
   Object.keys(state.players).forEach(name => {
@@ -194,6 +171,8 @@ function renderPlayerList(players) {
   Object.keys(players).forEach(name => {
     const box = document.createElement("div");
     box.className = "playerBox";
+    box.id = "player_" + name;
+
     const hpPercent = (players[name].hp / 20) * 100;
     box.innerHTML = `
       <div>${name}（HP: ${players[name].hp}）</div>
@@ -203,7 +182,6 @@ function renderPlayerList(players) {
   });
 }
 
-// ★ カード選択 UI
 function renderHand() {
   const handDiv = document.getElementById("hand");
   handDiv.innerHTML = "";
@@ -213,7 +191,7 @@ function renderHand() {
     div.innerText = `${card.name}\n(${card.rarity})`;
 
     if (selectedCardIndex === i) {
-      div.style.border = "3px solid yellow"; // ★ 選択中
+      div.style.border = "3px solid yellow";
     }
 
     div.onclick = () => {
