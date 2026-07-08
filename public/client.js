@@ -5,6 +5,7 @@ let hand = [];
 let redrawSelected = [];
 let currentTurnPlayer = "";
 let blockNextDraw = false;
+let selectedCardIndex = null; // ★ 選択カード
 
 // ★ ゲーム開始ボタン
 function startGame() {
@@ -13,7 +14,7 @@ function startGame() {
   connect();
 }
 
-// ★ カード一覧（前と同じ）
+// ★ カード一覧
 const allCards = [
   { id: 1, name: "攻撃 +3", attack: 3, rarity: "N" },
   { id: 2, name: "強攻撃 +6", attack: 6, extraAction: -1, rarity: "R" },
@@ -67,11 +68,10 @@ function connect() {
     }
 
     if (data.type === "turnStart") {
-      // ★ 最初の手札を3枚に変更
-      const drawCount = data.draw || 3;
+      const drawCount = 3; // ★ 最初の手札3枚
       const newCards = drawCards(drawCount);
+      newCards.forEach(c => animateCardAdd(c)); // ★ アニメーション
       hand.push(...newCards);
-      renderHand();
     }
 
     if (data.type === "fieldEffect") {
@@ -128,6 +128,34 @@ function connect() {
   };
 }
 
+// ★ カードを引くアニメーション
+function animateCardAdd(card) {
+  const handDiv = document.getElementById("hand");
+  const div = document.createElement("div");
+  div.className = "card " + card.rarity + " drawAnim";
+  div.innerText = `${card.name}\n(${card.rarity})`;
+  handDiv.appendChild(div);
+
+  setTimeout(() => {
+    renderHand();
+  }, 300);
+}
+
+// ★ CSS アニメーション（style.css に追加）
+/*
+.drawAnim {
+  transform: scale(0.1);
+  opacity: 0;
+  animation: drawCard 0.3s forwards;
+}
+@keyframes drawCard {
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+*/
+
 function drawCards(n) {
   const result = [];
   for (let i = 0; i < n; i++) {
@@ -146,6 +174,18 @@ function updateGameState(state) {
   currentTurnPlayer = state.turnPlayer;
   document.getElementById("turnPlayer").innerText = state.turnPlayer;
   renderPlayerList(state.players);
+
+  // ★ 攻撃対象プルダウン
+  const targetSelect = document.getElementById("targetSelect");
+  targetSelect.innerHTML = "";
+  Object.keys(state.players).forEach(name => {
+    if (name !== user) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.innerText = name;
+      targetSelect.appendChild(opt);
+    }
+  });
 }
 
 function renderPlayerList(players) {
@@ -163,6 +203,7 @@ function renderPlayerList(players) {
   });
 }
 
+// ★ カード選択 UI
 function renderHand() {
   const handDiv = document.getElementById("hand");
   handDiv.innerHTML = "";
@@ -170,30 +211,18 @@ function renderHand() {
     const div = document.createElement("div");
     div.className = "card " + card.rarity;
     div.innerText = `${card.name}\n(${card.rarity})`;
-    if (redrawSelected.includes(i)) {
-      div.style.border = "3px solid red";
+
+    if (selectedCardIndex === i) {
+      div.style.border = "3px solid yellow"; // ★ 選択中
     }
-    div.onclick = () => toggleRedraw(i);
+
+    div.onclick = () => {
+      selectedCardIndex = i;
+      renderHand();
+    };
+
     handDiv.appendChild(div);
   });
-}
-
-function toggleRedraw(i) {
-  if (redrawSelected.includes(i)) {
-    redrawSelected = redrawSelected.filter(x => x !== i);
-  } else {
-    if (redrawSelected.length < 2) redrawSelected.push(i);
-  }
-  renderHand();
-}
-
-function redraw() {
-  if (user !== currentTurnPlayer) return;
-  redrawSelected.forEach(i => {
-    hand[i] = drawCards(1)[0];
-  });
-  redrawSelected = [];
-  renderHand();
 }
 
 function playSelectedCard() {
@@ -201,9 +230,13 @@ function playSelectedCard() {
     alert("まだあなたのターンではありません");
     return;
   }
-  const target = document.getElementById("target").value;
-  const card = hand[0];
-  if (!card) return;
+  if (selectedCardIndex === null) {
+    alert("カードを選択してください");
+    return;
+  }
+
+  const target = document.getElementById("targetSelect").value;
+  const card = hand[selectedCardIndex];
 
   ws.send(JSON.stringify({
     type: "playCard",
@@ -213,7 +246,8 @@ function playSelectedCard() {
     card
   }));
 
-  hand.shift();
+  hand.splice(selectedCardIndex, 1);
+  selectedCardIndex = null;
   renderHand();
 }
 
