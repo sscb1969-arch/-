@@ -1,51 +1,15 @@
-let ws;
-let user = "";
-let room = "";
-let hand = [];
-let redrawSelected = [];
-let currentTurnPlayer = "";
-let blockNextDraw = false;
-
-const allCards = [
-  // 攻撃
-  { id: 1, name: "攻撃 +3", attack: 3, rarity: "N" },
-  { id: 2, name: "強攻撃 +6", attack: 6, extraAction: -1, rarity: "R" },
-  { id: 3, name: "連撃 2回", attackMulti: 2, rarity: "SR" },
-  { id: 4, name: "貫通攻撃 +4", attack: 4, pierce: true, rarity: "R" },
-  { id: 5, name: "吸収攻撃 +3 回復2", attack: 3, healSelf: 2, rarity: "SR" },
-  { id: 6, name: "妨害攻撃", attack: 2, reduceAction: 1, rarity: "SR" },
-  { id: 7, name: "全体攻撃 +2", attackAll: 2, rarity: "UR" },
-  { id: 8, name: "追行動攻撃 +2", attack: 2, extraAction: 1, rarity: "SR" },
-
-  // 防御
-  { id: 11, name: "防御 +3", defense: 3, rarity: "N" },
-  { id: 12, name: "強防御 +6", defense: 6, extraAction: -1, rarity: "R" },
-  { id: 13, name: "軽減（半減）", reduceIncoming: 0.5, rarity: "R" },
-  { id: 14, name: "反射 2", reflect: 2, rarity: "SR" },
-  { id: 15, name: "完全防御", blockOnce: true, rarity: "SR" },
-  { id: 16, name: "妨害無効", blockDisrupt: true, rarity: "SR" },
-
-  // 妨害
-  { id: 20, name: "妨害：手札破壊", disruptHand: 1, rarity: "R" },
-  { id: 21, name: "妨害：手札公開", revealHand: true, rarity: "R" },
-  { id: 22, name: "妨害：手札交換", stealCard: true, rarity: "SR" },
-  { id: 23, name: "妨害：ターンスキップ", skipTurn: true, rarity: "SR" },
-  { id: 24, name: "妨害：ターン奪取", stealTurn: true, rarity: "SR" },
-  { id: 25, name: "妨害：行動-1", reduceAction: 1, rarity: "SR" },
-  { id: 27, name: "妨害：ドロー封印", blockDraw: true, rarity: "R" },
-  { id: 28, name: "妨害：ドロー逆転", stealDraw: true, rarity: "SR" },
-
-  // フィールド効果
-  { id: 100, name: "環境：効果ランダム化（1T）", field: { type: "randomEffect", duration: 1 }, rarity: "SR" },
-  { id: 101, name: "環境：攻撃半減（2T）", field: { type: "halfAttack", duration: 2 }, rarity: "R" },
-  { id: 103, name: "環境：ドロー2枚（1T）", field: { type: "doubleDraw", duration: 1 }, rarity: "SR" },
-  { id: 104, name: "環境：行動固定（1T）", field: { type: "lockAction", duration: 1 }, rarity: "R" }
-];
-
 function connect() {
   user = document.getElementById("user").value;
   room = document.getElementById("room").value;
-  ws = new WebSocket("ws://localhost:8080");
+
+  // ★ ローカル開発なら ws://localhost:8080
+  // ★ Render 本番なら wss:// + location.host
+  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  const wsUrl = isLocal
+    ? "ws://localhost:8080"
+    : `wss://${location.host}`;
+
+  ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: "join", user, room }));
@@ -124,6 +88,7 @@ function connect() {
     }
   };
 }
+
 
 function drawCards(n) {
   const result = [];
