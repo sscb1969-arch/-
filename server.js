@@ -1,222 +1,215 @@
-// ===============================
-// Darkflame TCG Server (完全安定版)
-// ===============================
-
-const express = require("express");
-const http = require("http");
 const WebSocket = require("ws");
-const path = require("path");
-
-const PORT = process.env.PORT || 8080;
-
-const app = express();
-app.use(express.static(path.join(__dirname, "public")));
-
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ port: 8080 });
 
 const rooms = {};
 
+function drawCard() {
+  const r = Math.random();
+  let pool;
+  if (r < 0.60) pool = allCards.filter(c => c.rarity === "N");
+  else if (r < 0.85) pool = allCards.filter(c => c.rarity === "R");
+  else if (r < 0.95) pool = allCards.filter(c => c.rarity === "SR");
+  else pool = allCards.filter(c => c.rarity === "UR");
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 wss.on("connection", ws => {
   ws.on("message", msg => {
-    const data = JSON.parse(msg);
+    msg = JSON.parse(msg);
 
-    // -------------------------------
-    // ルーム参加
-    // -------------------------------
-    if (data.type === "join") {
-      const room = rooms[data.room] ||= {
-        players: [],
-        state: {
-          turn: 1,
-          turnPlayer: null,
-          actionPoints: 2,
-          players: {},
-          fieldEffect: null
-        }
+    const { type, room, user } = msg;
+
+    if (!rooms[room]) {
+      rooms[room] = {
+        players: {},
+        turnOrder: [],
+        turnPlayer: null
       };
-
-      room.players.push(ws);
-      room.state.players[data.user] = { hp: 20 };
-
-      if (!room.state.turnPlayer) {
-        room.state.turnPlayer = data.user;
-      }
-
-      // ★★★ 手札を確実に配るために順番を固定 ★★★
-      broadcast(room, {
-        type: "turnStart",
-        player: room.state.turnPlayer,
-        draw: 1
-      });
-
-      broadcast(room, {
-        type: "update",
-        state: room.state
-      });
     }
 
-    // -------------------------------
-    // チャット
-    // -------------------------------
-    if (data.type === "chat") {
-      const room = rooms[data.room];
-      broadcast(room, { type: "chat", user: data.user, text: data.text });
-    }
+    const state = rooms[room];
 
-    // -------------------------------
-    // カード使用
-    // -------------------------------
-    if (data.type === "playCard") {
-      const room = rooms[data.room];
-      let card = data.card;
-      const target = data.target;
-
-      card = applyFieldEffect(room, card);
-
-      if (card.attack) {
-        room.state.players[target].hp -= card.attack;
-        if (room.state.players[target].hp < 0) room.state.players[target].hp = 0;
+    // ★ join：カードは引かない
+    if (type === "join") {
+      if (!state.players[user]) {
+        state.players[user] = {
+          hp: 20,
+          blockOnce: false,
+          reflect: false,
+          reduceIncoming: false,
+          blockDisrupt: false
+        };
+        state.turnOrder.push(user);
       }
 
-      if (card.attackAll) {
-        Object.keys(room.state.players).forEach(name => {
-          room.state.players[name].hp -= card.attackAll;
-          if (room.state.players[name].hp < 0) room.state.players[name].hp = 0;
+      if (!state.turnPlayer) {
+        state.turnPlayer = user;
+
+        // ★初期手札3枚
+        broadcast(room, {
+          type: "turnStart",
+          player: user,
+          draw: 3
         });
       }
 
-      if (card.defense) {
-        room.state.players[data.user].hp += card.defense;
-        if (room.state.players[data.user].hp > 20) room.state.players[data.user].hp = 20;
+      broadcast(room, {
+        type: "update",
+        state
+      });
+      return;
+    }
+
+    // ★チャット
+    if (type === "chat") {
+      broadcast(room, {
+        type: "chat",
+        user,
+        text: msg.text
+      });
+      return;
+    }
+
+    // ★カード使用
+    if (type === "playCard") {
+      const card = msg.card;
+      const target = msg.target;
+
+      // 防御カードのセット
+      if (card.blockOnce) state.players[user].blockOnce = true;
+      if (card.reflect) state.players[user].reflect = true;
+      if (card.reduceIncoming) state.players[user].reduceIncoming = true;
+      if (card.blockDisrupt) state.players[user].blockDisrupt = true;
+
+      // ★攻撃カード
+      if (card.attack) {
+        const p = state.players[target];
+
+        // 完全防御
+        if (p.blockOnce) {
+          p.blockOnce = false;
+          broadcast(room, { type: "effect", target, text: "完全防御", color: "blue" });
+        }
+
+        // 反射
+        else if (p.reflect) {
+          p.reflect = false;
+          state.players[user].hp -= card.attack;
+          broadcast(room, { type: "effect", target, text: "反射", color: "blue" });
+        }
+
+        // 軽減
+        else if (p.reduceIncoming) {
+          p.reduceIncoming = false;
+          const dmg = Math.floor(card.attack * 0.5);
+          p.hp -= dmg;
+          broadcast(room, { type: "attackEffect", target, amount: dmg });
+        }
+
+        // 通常攻撃
+        else {
+          p.hp -= card.attack;
+          broadcast(room, { type: "attackEffect", target, amount: card.attack });
+        }
+
+        // ★死亡判定
+        if (p.hp <= 0) {
+          const rankings = Object.keys(state.players)
+            .map(name => ({ name, hp: state.players[name].hp }))
+            .sort((a, b) => b.hp - a.hp);
+
+          broadcast(room, {
+            type: "gameOver",
+            winner: user,
+            rankings
+          });
+          return;
+        }
       }
 
-      if (card.healSelf) {
-        room.state.players[data.user].hp += card.healSelf;
-        if (room.state.players[data.user].hp > 20) room.state.players[data.user].hp = 20;
+      // ★全体攻撃
+      if (card.attackAll) {
+        const amount = card.attackAll;
+        const targets = [];
+
+        state.turnOrder.forEach(name => {
+          const p = state.players[name];
+          p.hp -= amount;
+          targets.push(name);
+        });
+
+        broadcast(room, {
+          type: "attackEffectAll",
+          amount,
+          targets
+        });
       }
 
+      // ★妨害カード
       if (card.disruptHand) {
-        broadcast(room, { type: "disruptHand", target, amount: card.disruptHand });
+        broadcast(room, {
+          type: "disruptHand",
+          target,
+          amount: card.disruptHand
+        });
       }
-      if (card.revealHand) {
-        broadcast(room, { type: "revealHand", target });
+
+      if (card.stealCard) {
+        broadcast(room, {
+          type: "stealDraw",
+          target,
+          thief: user
+        });
       }
-      if (card.blockDraw) {
-        broadcast(room, { type: "blockDraw", target });
-      }
-      if (card.stealDraw) {
-        broadcast(room, { type: "stealDraw", target, thief: data.user });
-      }
+
       if (card.skipTurn) {
-        const names = Object.keys(room.state.players);
-        const index = names.indexOf(room.state.turnPlayer);
-        room.state.turnPlayer = names[(index + 2) % names.length];
-        room.state.actionPoints = 2;
-      }
-      if (card.stealTurn) {
-        room.state.turnPlayer = data.user;
-        room.state.actionPoints = 2;
-      }
-      if (card.reduceAction) {
-        room.state.actionPoints -= card.reduceAction;
-        if (room.state.actionPoints < 0) room.state.actionPoints = 0;
-      }
-
-      if (card.field) {
-        room.state.fieldEffect = {
-          type: card.field.type,
-          duration: card.field.duration,
-          name: card.name
-        };
-        broadcast(room, { type: "fieldEffect", effect: room.state.fieldEffect });
-      }
-
-      if (card.extraAction) {
-        room.state.actionPoints += card.extraAction;
-      }
-      room.state.actionPoints--;
-
-      if (room.state.players[target] && room.state.players[target].hp <= 0) {
-        broadcast(room, { type: "gameOver", winner: data.user });
+        nextTurn(room, true);
         return;
       }
 
-      if (room.state.actionPoints <= 0) {
-        nextTurn(room);
-      } else {
-        broadcast(room, { type: "update", state: room.state });
+      if (card.stealTurn) {
+        state.turnPlayer = user;
+        broadcast(room, {
+          type: "turnStart",
+          player: user,
+          draw: 1
+        });
+        return;
       }
-    }
 
-    if (data.type === "giveCard") {
-      const room = rooms[data.room];
-      broadcast(room, { type: "giveCard", card: data.card, to: data.to });
+      // ★ターン終了 → 次のターンへ
+      nextTurn(room, false);
     }
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Darkflame TCG Server Running on port ${PORT}`);
-});
+// ★ターン進行
+function nextTurn(room, skip) {
+  const state = rooms[room];
+  const idx = state.turnOrder.indexOf(state.turnPlayer);
 
-// -------------------------------
-// 共通関数
-// -------------------------------
-function broadcast(room, payload) {
-  room.players.forEach(ws => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(payload));
-    }
+  let next = idx + 1;
+  if (next >= state.turnOrder.length) next = 0;
+
+  state.turnPlayer = state.turnOrder[next];
+
+  broadcast(room, {
+    type: "turnStart",
+    player: state.turnPlayer,
+    draw: 1 // ★ターン開始時は必ず1枚
+  });
+
+  broadcast(room, {
+    type: "update",
+    state
   });
 }
 
-function nextTurn(room) {
-  if (room.state.fieldEffect) {
-    room.state.fieldEffect.duration--;
-    if (room.state.fieldEffect.duration <= 0) {
-      room.state.fieldEffect = null;
-      broadcast(room, { type: "fieldEnd" });
+// ★送信
+function broadcast(room, obj) {
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(obj));
     }
-  }
-
-  const names = Object.keys(room.state.players);
-  const index = names.indexOf(room.state.turnPlayer);
-  const nextIndex = (index + 1) % names.length;
-  room.state.turnPlayer = names[nextIndex];
-  room.state.turn++;
-  room.state.actionPoints = 2;
-
-  broadcast(room, { type: "update", state: room.state });
-  broadcast(room, { type: "turnStart", player: room.state.turnPlayer, draw: 1 });
-}
-
-function applyFieldEffect(room, card) {
-  const effect = room.state.fieldEffect;
-  if (!effect) return card;
-
-  const c = JSON.parse(JSON.stringify(card));
-
-  switch (effect.type) {
-    case "randomEffect":
-      return allRandomCard();
-    case "halfAttack":
-      if (c.attack) c.attack = Math.floor(c.attack / 2);
-      if (c.attackAll) c.attackAll = Math.floor(c.attackAll / 2);
-      return c;
-    case "doubleDraw":
-      if (c.draw) c.draw *= 2;
-      return c;
-    case "lockAction":
-      room.state.actionPoints = 1;
-      return c;
-    default:
-      return c;
-  }
-}
-
-function allRandomCard() {
-  const r = Math.random();
-  if (r < 0.5) return { name: "ランダム攻撃 +3", attack: 3 };
-  return { name: "ランダム防御 +3", defense: 3 };
+  });
 }
