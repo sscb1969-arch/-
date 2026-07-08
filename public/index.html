@@ -1,6 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="client.js"></script>
-<h2>オンラインカードゲーム</h2>
-<div id="chat"></div>
-<input id="msg"><button onclick="sendChat()">送信</button>
-<div id="hand"></div>
+<style>
+  body { font-family: sans-serif; }
+
+  #titleScreen {
+    text-align: center;
+    padding: 20px;
+  }
+
+  #gameScreen {
+    display: none; /* 最初は非表示 */
+  }
+
+  .card {
+    padding: 10px;
+    margin: 5px;
+    background: #eee;
+    border: 1px solid #aaa;
+    display: inline-block;
+  }
+</style>
+</head>
+<body>
+
+<!-- タイトル画面 -->
+<div id="titleScreen">
+  <h1>オンラインカードゲーム</h1>
+
+  <h3>ルール説明</h3>
+  <p>
+    ・カードを1枚選んでプレイ<br>
+    ・攻撃カードで相手のHPを削る<br>
+    ・防御カードでダメージを軽減<br>
+    ・最後までHPが残ったプレイヤーが勝ち
+  </p>
+
+  <h3>名前を入力</h3>
+  <input id="playerName" placeholder="名前を入力">
+
+  <br><br>
+  <button onclick="startGame()">ゲーム開始</button>
+</div>
+
+<!-- ゲーム画面 -->
+<div id="gameScreen">
+  <h2>オンラインカードゲーム</h2>
+
+  <div id="chat"></div>
+  <input id="msg"><button onclick="sendChat()">送信</button>
+
+  <h3>手札</h3>
+  <div id="hand"></div>
+</div>
+
+</body>
+</html>
