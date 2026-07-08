@@ -4,16 +4,9 @@ let room = "";
 let hand = [];
 let currentTurnPlayer = "";
 let selectedCardIndex = null;
-let playedThisTurn = false; // 攻撃・妨害は1ターン1枚まで
+let playedThisTurn = false;
 
-function startGame() {
-  document.getElementById("startScreen").style.display = "none";
-  document.getElementById("gameScreen").style.display = "block";
-  document.getElementById("roomName").innerText = document.getElementById("room").value;
-  connect();
-}
-
-// カード一覧（表示用）
+// カード一覧（クライアント側表示用）
 const allCards = [
   { id: 1, name: "攻撃 +3", attack: 3, rarity: "N" },
   { id: 2, name: "強攻撃 +6", attack: 6, extraAction: -1, rarity: "R" },
@@ -39,16 +32,23 @@ const allCards = [
   { id: 27, name: "妨害：ドロー封印", blockDraw: true, rarity: "R" },
   { id: 28, name: "妨害：ドロー逆転", stealDraw: true, rarity: "SR" },
 
-  { id: 100, name: "環境：効果ランダム化（1T）", field: { type: "randomEffect", duration: 1 }, rarity: "SR" },
-  { id: 101, name: "環境：攻撃半減（2T）", field: { type: "halfAttack", duration: 2 }, rarity: "R" },
-  { id: 103, name: "環境：ドロー2枚（1T）", field: { type: "doubleDraw", duration: 1 }, rarity: "SR" },
-  { id: 104, name: "環境：行動固定（1T）", field: { type: "lockAction", duration: 1 }, rarity: "R" }
+  { id: 100, name: "環境：効果ランダム化（1R）", field: { type: "randomEffect", duration: 1 }, rarity: "SR" },
+  { id: 101, name: "環境：攻撃半減（2R）", field: { type: "halfAttack", duration: 2 }, rarity: "R" },
+  { id: 103, name: "環境：ドロー2枚（1R）", field: { type: "doubleDraw", duration: 1 }, rarity: "SR" },
+  { id: 104, name: "環境：行動固定（1R）", field: { type: "lockAction", duration: 1 }, rarity: "R" }
 ];
 
-function connect() {
+function startGame() {
+  document.getElementById("startScreen").style.display = "none";
+  document.getElementById("gameScreen").style.display = "block";
+
   user = document.getElementById("user").value.trim();
   room = document.getElementById("room").value.trim();
 
+  connect();
+}
+
+function connect() {
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   const wsUrl = isLocal ? "ws://localhost:8080" : `wss://${location.host}`;
 
@@ -65,13 +65,13 @@ function connect() {
       updateGameState(data.state);
     }
 
-    // ★ターン開始：draw フィールドをちゃんと使う
     if (data.type === "turnStart") {
       playedThisTurn = false;
       currentTurnPlayer = data.player;
 
       const drawCount = data.draw || 0;
       const newCards = drawCards(drawCount);
+
       newCards.forEach(c => animateCardAdd(c));
       hand.push(...newCards);
     }
@@ -81,9 +81,7 @@ function connect() {
     }
 
     if (data.type === "attackEffectAll") {
-      data.targets.forEach(name => {
-        showDamage(name, data.amount);
-      });
+      data.targets.forEach(name => showDamage(name, data.amount));
     }
 
     if (data.type === "chat") {
@@ -108,7 +106,9 @@ function connect() {
   };
 }
 
-// ドロー（クライアント側はランダム生成のみ）
+// ---------------------------
+// カードドロー（クライアント側）
+// ---------------------------
 function drawCards(n) {
   const result = [];
   for (let i = 0; i < n; i++) {
@@ -123,7 +123,9 @@ function drawCards(n) {
   return result;
 }
 
-// カード引きアニメ
+// ---------------------------
+// UI：カード追加アニメ
+// ---------------------------
 function animateCardAdd(card) {
   const handDiv = document.getElementById("hand");
   const div = document.createElement("div");
@@ -131,12 +133,12 @@ function animateCardAdd(card) {
   div.innerText = `${card.name}\n(${card.rarity})`;
   handDiv.appendChild(div);
 
-  setTimeout(() => {
-    renderHand();
-  }, 300);
+  setTimeout(() => renderHand(), 300);
 }
 
-// ダメージ演出
+// ---------------------------
+// UI：ダメージ演出
+// ---------------------------
 function showDamage(targetName, amount) {
   const targetBox = document.getElementById("player_" + targetName);
   if (!targetBox) return;
@@ -155,7 +157,9 @@ function showDamage(targetName, amount) {
   }, 800);
 }
 
-// 勝利演出
+// ---------------------------
+// UI：勝利演出
+// ---------------------------
 function showVictory(winner, rankings) {
   const overlay = document.createElement("div");
   overlay.id = "victoryOverlay";
@@ -171,9 +175,22 @@ function showVictory(winner, rankings) {
   document.body.appendChild(overlay);
 }
 
+// ---------------------------
+// ゲーム状態更新
+// ---------------------------
 function updateGameState(state) {
   currentTurnPlayer = state.turnPlayer;
+
   document.getElementById("turnPlayer").innerText = state.turnPlayer;
+  document.getElementById("roundNumber").innerText = state.round;
+
+  // 環境効果表示
+  const envBox = document.getElementById("environmentEffect");
+  if (state.fieldEffect) {
+    envBox.innerText = `${state.fieldEffect.name}（残り ${state.fieldEffect.duration} R）`;
+  } else {
+    envBox.innerText = "なし";
+  }
 
   renderPlayerList(state.players, state.turnOrder);
 
@@ -182,6 +199,7 @@ function updateGameState(state) {
     updateRedrawCooldown(state.players[user].redrawCooldown || 0);
   }
 
+  // 攻撃対象リスト
   const targetSelect = document.getElementById("targetSelect");
   targetSelect.innerHTML = "";
   state.turnOrder.forEach(name => {
@@ -194,6 +212,9 @@ function updateGameState(state) {
   });
 }
 
+// ---------------------------
+// プレイヤー一覧描画
+// ---------------------------
 function renderPlayerList(players, order) {
   const list = document.getElementById("playerList");
   list.innerHTML = "";
@@ -204,6 +225,7 @@ function renderPlayerList(players, order) {
     box.id = "player_" + name;
 
     const hpPercent = (players[name].hp / 20) * 100;
+
     box.innerHTML = `
       <div>${name}（HP: ${players[name].hp}）</div>
       <div class="hpBar"><div class="hpFill" style="width:${hpPercent}%"></div></div>
@@ -212,9 +234,13 @@ function renderPlayerList(players, order) {
   });
 }
 
+// ---------------------------
+// 手札描画
+// ---------------------------
 function renderHand() {
   const handDiv = document.getElementById("hand");
   handDiv.innerHTML = "";
+
   hand.forEach((card, i) => {
     const div = document.createElement("div");
     div.className = "card " + card.rarity;
@@ -233,7 +259,9 @@ function renderHand() {
   });
 }
 
+// ---------------------------
 // 引き直しクールダウン表示
+// ---------------------------
 function updateRedrawCooldown(cd) {
   const text = document.getElementById("redrawCooldownText");
   const btn = document.getElementById("redrawBtn");
@@ -247,6 +275,9 @@ function updateRedrawCooldown(cd) {
   }
 }
 
+// ---------------------------
+// カード使用
+// ---------------------------
 function playSelectedCard() {
   if (user !== currentTurnPlayer) {
     alert("まだあなたのターンではありません");
@@ -259,7 +290,6 @@ function playSelectedCard() {
 
   const card = hand[selectedCardIndex];
 
-  // 防御カード判定
   const isDefense =
     card.defense ||
     card.healSelf ||
@@ -268,7 +298,6 @@ function playSelectedCard() {
     card.reduceIncoming ||
     card.reflect;
 
-  // 攻撃・妨害カードは1ターン1枚まで
   if (!isDefense && playedThisTurn) {
     alert("攻撃・妨害カードは1ターンに1枚までです");
     return;
@@ -291,7 +320,9 @@ function playSelectedCard() {
   renderHand();
 }
 
-// 引き直し（2ターンに1回）
+// ---------------------------
+// 引き直し
+// ---------------------------
 function redraw() {
   if (user !== currentTurnPlayer) {
     alert("あなたのターンではありません");
@@ -306,6 +337,9 @@ function redraw() {
   }));
 }
 
+// ---------------------------
+// チャット送信
+// ---------------------------
 function sendChat() {
   const text = document.getElementById("msg").value;
   ws.send(JSON.stringify({ type: "chat", room, user, text }));
