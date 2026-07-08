@@ -5,11 +5,16 @@ const WebSocket = require("ws");
 
 const wss = new WebSocket.Server({ server });
 
-app.use(express.static("public")); // ← index.html, client.js, style.css を置く場所
+app.use(express.static("public")); // index.html, client.js, style.css
 
+// ---------------------------
+// ルームデータ
+// ---------------------------
 const rooms = {};
 
-// ★ カード一覧（client.js と同じものをここに置く）
+// ---------------------------
+// カード一覧
+// ---------------------------
 const allCards = [
   { id: 1, name: "攻撃 +3", attack: 3, rarity: "N" },
   { id: 2, name: "強攻撃 +6", attack: 6, extraAction: -1, rarity: "R" },
@@ -41,7 +46,9 @@ const allCards = [
   { id: 104, name: "環境：行動固定（1T）", field: { type: "lockAction", duration: 1 }, rarity: "R" }
 ];
 
-// ★ カードを引く
+// ---------------------------
+// カードを引く
+// ---------------------------
 function drawCard() {
   const r = Math.random();
   let pool;
@@ -52,7 +59,9 @@ function drawCard() {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-// ★ WebSocket 接続
+// ---------------------------
+// WebSocket 接続
+// ---------------------------
 wss.on("connection", ws => {
   ws.on("message", raw => {
     const msg = JSON.parse(raw);
@@ -68,7 +77,9 @@ wss.on("connection", ws => {
 
     const state = rooms[room];
 
-    // ★ join：カードは引かない
+    // ---------------------------
+    // join：カードは絶対に引かない
+    // ---------------------------
     if (type === "join") {
       if (!state.players[user]) {
         state.players[user] = {
@@ -76,12 +87,13 @@ wss.on("connection", ws => {
           blockOnce: false,
           reflect: false,
           reduceIncoming: false,
-          blockDisrupt: false
+          blockDisrupt: false,
+          redrawCooldown: 0
         };
         state.turnOrder.push(user);
       }
 
-      // ★最初のプレイヤーに初期手札3枚
+      // 最初のプレイヤーだけ初期手札3枚
       if (!state.turnPlayer) {
         state.turnPlayer = user;
 
@@ -99,7 +111,9 @@ wss.on("connection", ws => {
       return;
     }
 
-    // ★チャット
+    // ---------------------------
+    // チャット
+    // ---------------------------
     if (type === "chat") {
       broadcast(room, {
         type: "chat",
@@ -109,7 +123,37 @@ wss.on("connection", ws => {
       return;
     }
 
-    // ★カード使用
+    // ---------------------------
+    // 引き直し（2ターンに1回）
+    // ---------------------------
+    if (type === "redraw") {
+      const p = state.players[user];
+
+      if (p.redrawCooldown > 0) {
+        ws.send(JSON.stringify({
+          type: "error",
+          message: `引き直しはあと ${p.redrawCooldown} ターン使えません`
+        }));
+        return;
+      }
+
+      const newHand = [];
+      for (let i = 0; i < msg.handSize; i++) {
+        newHand.push(drawCard());
+      }
+
+      ws.send(JSON.stringify({
+        type: "redrawResult",
+        newHand
+      }));
+
+      p.redrawCooldown = 2;
+      return;
+    }
+
+    // ---------------------------
+    // カード使用
+    // ---------------------------
     if (type === "playCard") {
       const card = msg.card;
       const target = msg.target;
@@ -120,7 +164,9 @@ wss.on("connection", ws => {
       if (card.reduceIncoming) state.players[user].reduceIncoming = true;
       if (card.blockDisrupt) state.players[user].blockDisrupt = true;
 
-      // ★攻撃処理
+      // ---------------------------
+      // 攻撃処理（防御は1回で消える）
+      // ---------------------------
       if (card.attack) {
         const p = state.players[target];
 
@@ -141,7 +187,7 @@ wss.on("connection", ws => {
           broadcast(room, { type: "attackEffect", target, amount: card.attack });
         }
 
-        // ★死亡判定
+        // 死亡判定
         if (p.hp <= 0) {
           const rankings = Object.keys(state.players)
             .map(name => ({ name, hp: state.players[name].hp }))
@@ -156,7 +202,7 @@ wss.on("connection", ws => {
         }
       }
 
-      // ★全体攻撃
+      // 全体攻撃
       if (card.attackAll) {
         const amount = card.attackAll;
         const targets = [];
@@ -173,7 +219,7 @@ wss.on("connection", ws => {
         });
       }
 
-      // ★妨害
+      // 妨害
       if (card.disruptHand) {
         broadcast(room, {
           type: "disruptHand",
@@ -205,17 +251,24 @@ wss.on("connection", ws => {
         return;
       }
 
-      // ★ターン終了
       nextTurn(room);
     }
   });
 });
 
-// ★ターン進行
+// ---------------------------
+// ターン進行
+// ---------------------------
 function nextTurn(room) {
   const state = rooms[room];
-  const idx = state.turnOrder.indexOf(state.turnPlayer);
 
+  // クールダウン減少
+  state.turnOrder.forEach(name => {
+    const p = state.players[name];
+    if (p.redrawCooldown > 0) p.redrawCooldown--;
+  });
+
+  const idx = state.turnOrder.indexOf(state.turnPlayer);
   let next = idx + 1;
   if (next >= state.turnOrder.length) next = 0;
 
@@ -224,7 +277,7 @@ function nextTurn(room) {
   broadcast(room, {
     type: "turnStart",
     player: state.turnPlayer,
-    draw: 1 // ★ターン開始時は必ず1枚
+    draw: 1
   });
 
   broadcast(room, {
@@ -233,7 +286,9 @@ function nextTurn(room) {
   });
 }
 
-// ★送信
+// ---------------------------
+// 送信
+// ---------------------------
 function broadcast(room, obj) {
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
@@ -242,7 +297,9 @@ function broadcast(room, obj) {
   });
 }
 
-// ★ Render 用ポート設定
+// ---------------------------
+// Render 用ポート
+// ---------------------------
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log("Server running on port " + PORT);
