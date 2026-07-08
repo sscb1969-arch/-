@@ -1,60 +1,74 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="client.js"></script>
-<style>
-  body { font-family: sans-serif; }
+  <meta charset="UTF-8">
+  <title>Darkflame TCG</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 10px; background: #f5f5f5; }
+    #gameScreen { display: flex; flex-direction: column; gap: 15px; }
 
-  #titleScreen {
-    text-align: center;
-    padding: 20px;
-  }
+    .playerBox { background: #222; color: #fff; padding: 10px; border-radius: 8px; margin-bottom: 8px; }
+    .hpBar { width: 100%; height: 8px; background: #555; border-radius: 4px; margin-top: 4px; }
+    .hpFill { height: 100%; background: #4caf50; border-radius: 4px; }
 
-  #gameScreen {
-    display: none; /* 最初は非表示 */
-  }
+    #hand { display: flex; overflow-x: auto; gap: 10px; padding-bottom: 10px; }
+    .card { min-width: 120px; padding: 12px; border-radius: 10px; border: 2px solid #444;
+            text-align: center; flex-shrink: 0; cursor: pointer; transition: transform 0.2s; background:#fff; }
+    .card:active { transform: scale(0.95); }
 
-  .card {
-    padding: 10px;
-    margin: 5px;
-    background: #eee;
-    border: 1px solid #aaa;
-    display: inline-block;
-  }
-</style>
+    .card.N  { border-color: #888; background: #f8f8f8; }
+    .card.R  { border-color: #4caf50; background: #e8ffe8; }
+    .card.SR { border-color: #2196f3; background: #e8f0ff; }
+    .card.UR { border-color: #ff9800; background: #fff0d0; box-shadow: 0 0 12px #ff9800; }
+
+    #chat { height: 150px; overflow-y: auto; background: #fff; padding: 10px; border-radius: 8px; }
+    .chatMsg { background: #eee; padding: 6px 10px; margin: 4px 0; border-radius: 6px; }
+
+    #msg { width: 70%; padding: 10px; font-size: 16px; }
+    button { padding: 10px 16px; font-size: 16px; border-radius: 8px; border: none; background: #4caf50; color: white; }
+
+    #turnPlayer { font-size: 22px; font-weight: bold; color: #ffcc00; text-shadow: 0 0 10px #ffcc00; }
+    #fieldEffect { font-size: 16px; color: #333; }
+
+    @media (min-width: 800px) {
+      #gameScreen { flex-direction: row; }
+      #leftArea, #rightArea { width: 50%; }
+    }
+  </style>
 </head>
 <body>
+  <h2>Darkflame Online TCG</h2>
 
-<!-- タイトル画面 -->
-<div id="titleScreen">
-  <h1>オンラインカードゲーム</h1>
+  <div>
+    名前: <input id="user"><br>
+    ルーム: <input id="room"><br>
+    <button onclick="connect()">接続</button>
+  </div>
 
-  <h3>ルール説明</h3>
-  <p>
-    ・カードを1枚選んでプレイ<br>
-    ・攻撃カードで相手のHPを削る<br>
-    ・防御カードでダメージを軽減<br>
-    ・最後までHPが残ったプレイヤーが勝ち
-  </p>
+  <div id="gameScreen">
+    <div id="leftArea">
+      <h3>プレイヤー一覧</h3>
+      <div id="playerList"></div>
 
-  <h3>名前を入力</h3>
-  <input id="playerName" placeholder="名前を入力">
+      <h3>現在のターン：<span id="turnPlayer"></span></h3>
+      <h3>環境効果：<span id="fieldEffect">なし</span></h3>
 
-  <br><br>
-  <button onclick="startGame()">ゲーム開始</button>
-</div>
+      <h3>攻撃対象</h3>
+      <input id="target">
+      <button onclick="playSelectedCard()">カードを出す</button>
+      <button onclick="redraw()">引き直し（最大2枚）</button>
+    </div>
 
-<!-- ゲーム画面 -->
-<div id="gameScreen">
-  <h2>オンラインカードゲーム</h2>
+    <div id="rightArea">
+      <h3>手札</h3>
+      <div id="hand"></div>
 
-  <div id="chat"></div>
-  <input id="msg"><button onclick="sendChat()">送信</button>
+      <h3>チャット</h3>
+      <div id="chat"></div>
+      <input id="msg"><button onclick="sendChat()">送信</button>
+    </div>
+  </div>
 
-  <h3>手札</h3>
-  <div id="hand"></div>
-</div>
-
+  <script src="client.js"></script>
 </body>
 </html>
