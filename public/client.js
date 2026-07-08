@@ -2,10 +2,10 @@ let ws;
 let user = "";
 let room = "";
 let hand = [];
-let redrawSelected = [];
 let currentTurnPlayer = "";
 let blockNextDraw = false;
 let selectedCardIndex = null;
+let playedThisTurn = false; // ★攻撃・妨害カードは1ターン1枚まで
 
 // ★ ゲーム開始
 function startGame() {
@@ -34,7 +34,6 @@ const allCards = [
   { id: 16, name: "妨害無効", blockDisrupt: true, rarity: "SR" },
 
   { id: 20, name: "妨害：手札破壊", disruptHand: 1, rarity: "R" },
-  { id: 21, name: "妨害：手札公開", revealHand: true, rarity: "R" },
   { id: 22, name: "妨害：手札交換", stealCard: true, rarity: "SR" },
   { id: 23, name: "妨害：ターンスキップ", skipTurn: true, rarity: "SR" },
   { id: 24, name: "妨害：ターン奪取", stealTurn: true, rarity: "SR" },
@@ -69,8 +68,8 @@ function connect() {
     }
 
     if (data.type === "turnStart") {
-      const drawCount = 3;
-      const newCards = drawCards(drawCount);
+      playedThisTurn = false; // ★ターン開始でリセット
+      const newCards = drawCards(1); // ★ターン開始時に1枚ドロー
       newCards.forEach(c => animateCardAdd(c));
       hand.push(...newCards);
     }
@@ -80,7 +79,7 @@ function connect() {
     }
 
     if (data.type === "attackEffectAll") {
-      Object.keys(data.players).forEach(name => {
+      data.targets.forEach(name => {
         showDamage(name, data.amount);
       });
     }
@@ -98,6 +97,10 @@ function connect() {
       const chat = document.getElementById("chat");
       chat.innerHTML += `<div class="chatMsg"><b>${data.user}:</b> ${data.text}</div>`;
       chat.scrollTop = chat.scrollHeight;
+    }
+
+    if (data.type === "gameOver") {
+      showVictory(data.winner, data.rankings);
     }
   };
 }
@@ -134,6 +137,22 @@ function showDamage(targetName, amount) {
   }, 800);
 }
 
+// ★ 勝利演出
+function showVictory(winner, rankings) {
+  const overlay = document.createElement("div");
+  overlay.id = "victoryOverlay";
+  overlay.innerHTML = `
+    <div class="victoryBox">
+      <h1>勝者：${winner}</h1>
+      <h2>順位</h2>
+      <ol>
+        ${rankings.map(p => `<li>${p.name}（HP: ${p.hp}）</li>`).join("")}
+      </ol>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
 function drawCards(n) {
   const result = [];
   for (let i = 0; i < n; i++) {
@@ -151,11 +170,12 @@ function drawCards(n) {
 function updateGameState(state) {
   currentTurnPlayer = state.turnPlayer;
   document.getElementById("turnPlayer").innerText = state.turnPlayer;
-  renderPlayerList(state.players);
+
+  renderPlayerList(state.players, state.turnOrder);
 
   const targetSelect = document.getElementById("targetSelect");
   targetSelect.innerHTML = "";
-  Object.keys(state.players).forEach(name => {
+  state.turnOrder.forEach(name => {
     if (name !== user) {
       const opt = document.createElement("option");
       opt.value = name;
@@ -165,10 +185,11 @@ function updateGameState(state) {
   });
 }
 
-function renderPlayerList(players) {
+function renderPlayerList(players, order) {
   const list = document.getElementById("playerList");
   list.innerHTML = "";
-  Object.keys(players).forEach(name => {
+
+  order.forEach(name => {
     const box = document.createElement("div");
     box.className = "playerBox";
     box.id = "player_" + name;
@@ -213,8 +234,24 @@ function playSelectedCard() {
     return;
   }
 
-  const target = document.getElementById("targetSelect").value;
   const card = hand[selectedCardIndex];
+
+  // ★防御カード判定
+  const isDefense =
+    card.defense ||
+    card.healSelf ||
+    card.blockOnce ||
+    card.blockDisrupt ||
+    card.reduceIncoming ||
+    card.reflect;
+
+  // ★攻撃・妨害カードは1ターン1枚まで
+  if (!isDefense && playedThisTurn) {
+    alert("攻撃・妨害カードは1ターンに1枚までです");
+    return;
+  }
+
+  const target = document.getElementById("targetSelect").value;
 
   ws.send(JSON.stringify({
     type: "playCard",
@@ -224,7 +261,26 @@ function playSelectedCard() {
     card
   }));
 
+  if (!isDefense) playedThisTurn = true;
+
   hand.splice(selectedCardIndex, 1);
+  selectedCardIndex = null;
+  renderHand();
+}
+
+// ★ 引き直し＝手札全交換
+function redraw() {
+  if (user !== currentTurnPlayer) {
+    alert("あなたのターンではありません");
+    return;
+  }
+
+  const newHand = [];
+  for (let i = 0; i < hand.length; i++) {
+    newHand.push(drawCards(1)[0]);
+  }
+
+  hand = newHand;
   selectedCardIndex = null;
   renderHand();
 }
